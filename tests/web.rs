@@ -8,6 +8,9 @@ use wasm_bindgen_test::*;
 use quickcheck_macros::quickcheck;
 wasm_bindgen_test_configure!(run_in_browser);
 
+/*
+Unit Tests
+*/
 #[wasm_bindgen_test]
 #[quickcheck]
 fn can_convert_transitable_base64(s:String) -> bool{
@@ -24,3 +27,6 @@ fn can_convert_transitable_bytes(s:String) -> bool{
     let s_mod = Transitable::from_bytes(bytes.as_slice()).as_readable();
     s == s_mod
 }
+/*
+Integration Tests
+*/
