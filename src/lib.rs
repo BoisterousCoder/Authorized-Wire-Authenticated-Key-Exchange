@@ -1,9 +1,12 @@
-pub mod utils;
-
 use utils::Transitable;
+
+pub mod utils;
+pub mod awake;
+
 use wasm_bindgen::prelude::*;
+use crate::awake::Awake;
 
 #[wasm_bindgen]
-pub fn handshake_initiate(text:&str) -> Transitable {
-    return Transitable::from_readable(text);
+pub async fn initiate() -> Awake{
+    return Awake::new().await;
 }

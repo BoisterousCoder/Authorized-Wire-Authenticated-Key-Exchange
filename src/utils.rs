@@ -1,9 +1,11 @@
 //#[macro_use]
 // use simple_error::bail;
 
-use base64;
+use bs58;
 use wasm_bindgen::prelude::wasm_bindgen;
-use js_sys;
+use wasm_bindgen::{JsValue, JsCast};
+use js_sys::Object;
+use std::collections::HashMap;
 use std::str;
 
 #[wasm_bindgen]
@@ -13,11 +15,13 @@ pub struct Transitable {
 
 #[wasm_bindgen]
 impl Transitable {
-    pub fn from_base64(input: &str) -> Transitable{
+    pub fn from_base58(input: &str) -> Transitable{
+        let vec_bytes = bs58::decode(input).into_vec().unwrap();
+        let bytes = vec_bytes.as_slice();
         return Transitable{
             //TODO: add error handling here
-            data: str::from_utf8(base64::decode(input).unwrap().as_slice()).unwrap().to_string()
-        }
+            data: str::from_utf8(bytes).unwrap().to_string()
+        };
     }
     pub fn from_readable(input: &str) -> Transitable{
         return Transitable{
@@ -38,32 +42,22 @@ impl Transitable {
         return self.data.to_string();
     }
     #[wasm_bindgen(getter)]
-    pub fn as_base64(&self) -> String {
-        return base64::encode(self.data.clone());
+    pub fn as_base58(&self) -> String {
+        return bs58::encode(self.data.as_bytes()).into_string();
     }
 }
-#[cfg(test)]
-mod tests {
-    use quickcheck_macros::quickcheck;
-    use wasm_bindgen_test::wasm_bindgen_test;
-    use crate::utils::Transitable;
 
-    #[wasm_bindgen_test]
-    #[quickcheck]
-    fn can_convert_transitable_base64(s:String) -> bool{
-        // let s = "dklfjhlkdsjahffdsfkjhfdskjdaflshfkdjhfdsalkjhfkljdsahf";
-        let base_64 = Transitable::from_readable(&s).as_base64();
-        let s_mod = Transitable::from_base64(&base_64).as_readable();
-        s == s_mod
+pub fn js_objectify(props:HashMap<&str, JsValue>) -> Object{
+    let mut obj = Object::new();
+    for (prop, val) in props {
+        let obj_val: Object= JsValue::from(ObjectProperty{value:val, writable:false}).dyn_into().unwrap();
+        obj = Object::define_property(&obj, &JsValue::from_str(prop), &obj_val)
     }
-    #[wasm_bindgen_test]
-    #[quickcheck]
-    fn can_convert_transitable_bytes(s:String) -> bool{
-        // let s = "dklfjhlkdsjahffdsfkjhfdskjdaflshfkdjhfdsalkjhfkljdsahf";
-        let js_bytes = Transitable::from_readable(&s).as_bytes();
-        let mut bytes = vec![];
-        js_bytes.for_each(&mut |byte, i, _| bytes[i as usize] = byte);
-        let s_mod = Transitable::from_bytes(bytes.as_slice()).as_readable();
-        s == s_mod
-    }
+    return obj;
+}
+
+#[wasm_bindgen]
+struct ObjectProperty {
+    value:JsValue,
+    writable:bool
 }

@@ -10,9 +10,7 @@ Capability-based systems have a helpful philosophy towards a third path. By emph
 
 This app depends on the Rust programming language, and the Wasm-Pack tools to build.
 
-### To build:
-  
-#### From source
+### To build source:
 1. Clone this repository
 1. ensure Rust (https://www.rust-lang.org/learn/get-started) and Wasm-pack (https://rustwasm.github.io/wasm-pack/installer/) are installed
 1. Run `$ wasm build --target web` to install libraries and build the prograam
