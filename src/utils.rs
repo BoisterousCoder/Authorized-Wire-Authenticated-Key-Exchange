@@ -4,10 +4,16 @@
 use bs58;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsValue, JsCast};
+use serde::{Serialize, Deserialize};
 use js_sys::Object;
 use std::collections::HashMap;
 use std::str;
 
+#[derive(Serialize, Deserialize)]
+pub struct UcanCapability{
+    pub with:String,
+    pub can:String
+}
 #[wasm_bindgen]
 pub struct Transitable {
     data: String,
@@ -47,10 +53,10 @@ impl Transitable {
     }
 }
 
-pub fn js_objectify(props:HashMap<&str, JsValue>) -> Object{
+pub fn js_objectify(props:&HashMap<String, JsValue>) -> Object{
     let mut obj = Object::new();
     for (prop, val) in props {
-        let obj_val: Object= JsValue::from(ObjectProperty{value:val, writable:false}).dyn_into().unwrap();
+        let obj_val: Object= JsValue::from(ObjectProperty{value:val.clone(), writable:false}).dyn_into().unwrap();
         obj = Object::define_property(&obj, &JsValue::from_str(prop), &obj_val)
     }
     return obj;

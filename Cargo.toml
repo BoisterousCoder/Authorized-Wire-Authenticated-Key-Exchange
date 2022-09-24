@@ -19,7 +19,7 @@ bs58 = "0.4.0"
 # simple-error = "0.2.3"
 ucan = "0.6.0-alpha.1"
 js-sys = "0.3.60"
-web-sys = {version = "0.3.60", features = ["Window", "Crypto", "SubtleCrypto", "CryptoKeyPair", "CryptoKey"]}
+web-sys = {version = "0.3.60", features = ["Window", "Crypto", "SubtleCrypto", "CryptoKeyPair", "CryptoKey", "console"]}
 getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]

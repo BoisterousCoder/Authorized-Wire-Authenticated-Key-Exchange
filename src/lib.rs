@@ -1,4 +1,4 @@
-use utils::Transitable;
+#![cfg(target_arch = "wasm32")]
 
 pub mod utils;
 pub mod awake;
