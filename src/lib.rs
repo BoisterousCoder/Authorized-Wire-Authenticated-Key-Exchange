@@ -2,6 +2,7 @@
 
 pub mod utils;
 pub mod awake;
+pub mod ratchet;
 
 use wasm_bindgen::prelude::*;
 use crate::awake::Awake;

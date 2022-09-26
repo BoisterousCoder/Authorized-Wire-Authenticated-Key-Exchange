@@ -5,6 +5,7 @@ use bs58;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsValue, JsCast};
 use serde::{Serialize, Deserialize};
+use web_sys::{SubtleCrypto};
 use js_sys::Object;
 use std::collections::HashMap;
 use std::str;
@@ -60,6 +61,11 @@ pub fn js_objectify(props:&HashMap<String, JsValue>) -> Object{
         obj = Object::define_property(&obj, &JsValue::from_str(prop), &obj_val)
     }
     return obj;
+}
+
+pub fn fetch_subtle_crypto() -> SubtleCrypto{
+    let window = web_sys::window().unwrap();
+    return window.crypto().unwrap().subtle();
 }
 
 #[wasm_bindgen]
