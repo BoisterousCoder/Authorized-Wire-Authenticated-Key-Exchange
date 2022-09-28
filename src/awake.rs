@@ -5,9 +5,10 @@ use web_sys::{SubtleCrypto, CryptoKey};
 use js_sys::{Uint8Array, Object, Array};
 use std::collections::HashMap;
 use serde_json::Value;
+use web_sys::console;
 
 use crate::ratchet::Ratchet;
-use crate::utils::{Transitable, UcanCapability, js_objectify, fetch_subtle_crypto};
+use crate::utils::*;
 
 const DID_KEY_PREFIX:&str = "did:key:";
 const DID_KEY_PREFIX_NIST256:&str = "zDn";
@@ -29,10 +30,7 @@ impl Awake{
             ("name".to_string(), JsValue::from_str("ECDH")),
             ("namedCurve".to_string(), JsValue::from_str("P-256")),
         ]);
-        let key_pair_promise = crypto.generate_key_with_object(&js_objectify(&handshake_algorithm), false, &JsValue::from_str("derive")).unwrap();
-        let key_pair_future = JsFuture::from(key_pair_promise);
-        let key_pair_object:Object = key_pair_future.await.unwrap().dyn_into().unwrap();
-        let (public_key, private_key) = object_to_keypair(&key_pair_object);
+        let (public_key, private_key) = gen_key_pair(&crypto, &handshake_algorithm).await;
         return Awake{
             handshake_public:Some(public_key),
             handshake_private:Some(private_key),
@@ -69,34 +67,22 @@ impl Awake{
         //start double ratchet
         self.initiate_ratchet(other_agent_did_key).await;
 
+        //
+
         return Transitable::from_readable(other_agent_did_key);
     }
     //Part 1.5.1.1 from spec
     async fn initiate_ratchet(&mut self, other_agent_did_key:&str){
         //get your private key
-        let self_key:&CryptoKey = match &self.handshake_private {
-            None => panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections."),
-            Some(private_key) => private_key
-        };
+        let (_, self_key):(CryptoKey, CryptoKey) = gen_key_pair(&self.crypto, &self.handshake_algorithm).await;
+        if !(self.handshake_private.is_some() && self.handshake_public.is_some()){
+            panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
+        }
+        
         //get other agent's public key
         let other_agent_key = did_key_to_crypto_key(&self.crypto, DID_KEY_PREFIX_NIST256, other_agent_did_key, &self.handshake_algorithm).await;
         //get Ecdh shared secret
-        let shared_secret_algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("ECDH")),
-            ("public".to_string(), JsValue::from(other_agent_key))
-        ]);
-        let shared_secret_params = HashMap::from([
-            ("name".to_string(), JsValue::from_str("AES-GCM")),
-            ("length".to_string(), JsValue::from(128))
-        ]);
-        let shared_secret_promise = self.crypto.derive_key_with_object_and_object(
-            &js_objectify(&shared_secret_algorithm),
-            self_key,
-            &js_objectify(&shared_secret_params),
-            false,
-            &JsValue::from("deriveKey")
-        );
-        let shared_secret:CryptoKey = JsFuture::from(shared_secret_promise.unwrap()).await.unwrap().dyn_into().unwrap();
+        let shared_secret = diffie_helman(&self.crypto, self_key, other_agent_key).await;
         //make ratchet
         self.ratchet = Some(Ratchet::new(
             shared_secret,
@@ -104,8 +90,8 @@ impl Awake{
             other_agent_did_key.as_bytes().to_vec()
         ).await);
         //Wipe handshake keys for security
-        self.handshake_private = None;
-        self.handshake_public = None;
+        //self.handshake_private = None;
+        //self.handshake_public = None;
     }
 }
 async fn crypto_key_to_did_key(crypto:&SubtleCrypto, curve_prefix:&str, crypto_key:&CryptoKey) -> String{
@@ -127,49 +113,10 @@ async fn did_key_to_crypto_key(crypto:&SubtleCrypto, curve_prefix:&str, did_key:
             i += 1;
         }
 
-        let key_promise = crypto.import_key_with_object("raw", &key_byte_array, &js_objectify(algorithm), false, &JsValue::from_str("derive")).unwrap();
+        let key_promise = crypto.import_key_with_object("raw", &key_byte_array, &js_objectify(algorithm), false, &JsValue::from_str("deriveKey")).unwrap();
         let key_future = JsFuture::from(key_promise);
         return key_future.await.unwrap().dyn_into().unwrap();
     }else{
         panic!("DID key is not Nist-256 or is improperly formatted")
     }
-}
-
-fn object_to_keypair(obj: &Object) -> (CryptoKey, CryptoKey){
-    //TODO: add error handling
-    let entries = Object::entries(obj);
-    let mut public_key:Option<CryptoKey> = None;
-    let mut private_key:Option<CryptoKey> = None;
-    for js_entry in entries.to_vec(){
-        let entry:Array = js_entry.dyn_into().unwrap();
-        let prop = entry.get(0).as_string().unwrap();
-        if prop == "publicKey".to_string(){
-            public_key = Some(entry.get(1).dyn_into().unwrap());
-        }else if prop == "privateKey".to_string(){
-            private_key = Some(entry.get(1).dyn_into().unwrap());
-        }
-    };
-    //TODO: add error handling
-    return (public_key.unwrap(), private_key.unwrap());
-}
-
-
-fn object_to_capability(obj:&Object) -> UcanCapability{
-    //TODO: add error handling
-    let entries = Object::entries(obj);
-    let mut with:Option<String> = None;
-    let mut can:Option<String> = None;
-    for js_entry in entries.to_vec(){
-        let entry:Array = js_entry.dyn_into().unwrap();
-        let prop = entry.get(0).as_string().unwrap();
-        if prop == "with".to_string(){
-            with = Some(entry.get(1).as_string().unwrap());
-        }else if prop == "can".to_string(){
-            can = Some(entry.get(1).as_string().unwrap());
-        }
-    }
-    return UcanCapability{
-        with:with.unwrap(),
-        can:can.unwrap()
-    };
 }

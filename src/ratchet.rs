@@ -1,13 +1,11 @@
-use wasm_bindgen::prelude::*;
-use js_sys::{Uint8Array, Array};
+use js_sys::{Uint8Array, ArrayBuffer, Array};
 use std::collections::HashMap;
 use std::slice::Iter;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::CryptoKey;
 use crate::utils::{js_objectify, fetch_subtle_crypto};
 
-#[wasm_bindgen]
 pub struct Ratchet{
     shared_secret:CryptoKey,
     is_encrypting:bool,
@@ -20,25 +18,20 @@ impl Ratchet{
             shared_secret:shared_secret.clone(),
             secret_chain: vec![]
         };
-        ratchet.secret_chain.push(RatchetElement::new(shared_secret, salt, 0, None).await);
+        ratchet.secret_chain.push(RatchetElement::new(shared_secret, salt, None).await);
         return ratchet;
     }
     pub async fn process_payload(&mut self, id:u64, payload:Vec<u8>) -> Result<Vec<u8>, String>{
-        while (self.secret_chain.len() as u64) < id {
+        while (self.secret_chain.len() as u64) <= id {
             let last = self.secret_chain.len()-1;
             let new_ele = self.secret_chain[last].next().await;
             self.secret_chain.push(new_ele);
         }
-        return match self.is_encrypting{
-            true => self.secret_chain[id as usize].encrypt(payload).await,
-            false => self.secret_chain[id as usize].decrypt(payload).await
-        }
+        return self.secret_chain[id as usize].proccess_payload(self.is_encrypting, payload).await;
     }
 }
 
-#[wasm_bindgen]
 pub struct RatchetElement{
-    id:Option<u64>,
     secret:Option<[u8; 32]>,
     aes_key:Option<[u8; 32]>,
     unique_iv:Option<[u8; 12]>,
@@ -46,7 +39,7 @@ pub struct RatchetElement{
     shared_secret:Option<CryptoKey>
 }
 impl RatchetElement{
-    pub async fn new(shared_secret:CryptoKey, salt:Vec<u8>, id:u64, last_secret:Option<&[u8]>) -> RatchetElement{
+    pub async fn new(shared_secret:CryptoKey, salt:Vec<u8>, last_secret:Option<&[u8]>) -> RatchetElement{
         let last_secret_array = match last_secret {
             Some(secret) => u8_iter_js_array(secret.iter()),
             None => Uint8Array::new_with_length(0)
@@ -54,7 +47,7 @@ impl RatchetElement{
         let salt_array = u8_iter_js_array(salt.iter());
         let algorithm = HashMap::from([
             ("name".to_string(), JsValue::from_str("HKDF")),
-            ("hash".to_string(), JsValue::from("SHA-512")),
+            ("hash".to_string(), JsValue::from("SHA-256")),
             ("salt".to_string(), JsValue::from(salt_array)),
             ("info".to_string(), JsValue::from(last_secret_array))
         ]);
@@ -62,26 +55,26 @@ impl RatchetElement{
             &js_objectify(&algorithm),
             &shared_secret,
             608 as u32
-        );
-        let key_data_array:Array = JsFuture::from(key_data_promise.unwrap()).await.unwrap().dyn_into().unwrap();
-        let key_data:Vec<JsValue> = key_data_array.to_vec();
+        ).unwrap();
+        let key_data_js_value = JsFuture::from(key_data_promise).await.unwrap();
+        let key_data_array_buffer:ArrayBuffer = key_data_js_value.dyn_into().unwrap();
+        let key_data_array:Uint8Array = js_sys::Uint8Array::new(&key_data_array_buffer);
+        let key_data = key_data_array.to_vec();
         let mut secret:[u8; 32] = [0 as u8; 32];
         let mut aes_key:[u8; 32] = [0 as u8; 32];
         let mut unique_iv:[u8; 12] = [0 as u8; 12];
         let mut i = 0;
-        for js_byte in key_data {
-            let byte = js_byte.as_f64().unwrap() as u8;
+        for byte in key_data {
             if i < secret.len(){
                 secret[i] = byte;
             }else if i < secret.len() + aes_key.len(){
-                aes_key[i] = byte;
+                aes_key[i - secret.len()] = byte;
             }else{
-                unique_iv[i] = byte;
+                unique_iv[i - secret.len() - aes_key.len()] = byte;
             }
             i += 1;
         }
         return RatchetElement{ 
-            id:Some(id), 
             secret:Some(secret),
             aes_key:Some(aes_key), 
             unique_iv:Some(unique_iv), 
@@ -89,43 +82,43 @@ impl RatchetElement{
             shared_secret:Some(shared_secret)
         }
     }
-    pub async fn encrypt(&mut self, payload:Vec<u8>) -> Result<Vec<u8>, String> {
+    pub async fn proccess_payload(&mut self, is_encrypting:bool, payload:Vec<u8>)-> Result<Vec<u8>, String>{
         if self.has_processed_message() {
             return Err("A message has already been proccessed with given id".to_string());
         }
         let iv_array = u8_iter_js_array(self.unique_iv.unwrap().iter());
+        let aes_key_array = u8_iter_js_array(self.aes_key.unwrap().iter());
         let algorithm = HashMap::from([
             ("name".to_string(), JsValue::from_str("AES-GCM")),
             ("iv".to_string(), JsValue::from(iv_array)),
         ]);
-        let mut payload_copy = payload;
-        let payload_promise = fetch_subtle_crypto().encrypt_with_object_and_u8_array(
-            &js_objectify(&algorithm),
-            self.shared_secret.as_ref().unwrap(),
-            &mut payload_copy[..]
-        ).unwrap();
-        let payload_complete:Uint8Array = JsFuture::from(payload_promise).await.unwrap().dyn_into().unwrap();
+        let key_uses = Array::new_with_length(2);
+        key_uses.set(0, "encrypt".into());
+        key_uses.set(1, "decrypt".into());
+
+        let payload_array = Uint8Array::new_with_length(payload.len() as u32);
+        payload_array.copy_from(payload.as_slice());
+        let crypto =  fetch_subtle_crypto();
+        let js_algoritm = js_objectify(&algorithm);
+        let aes_key_promise = crypto.import_key_with_str("raw", &aes_key_array, "AES-GCM", false, &key_uses).unwrap();
+        let aes_key_js = JsFuture::from(aes_key_promise).await.unwrap();
+        let aes_key:CryptoKey = aes_key_js.dyn_into().unwrap();
+        let payload_promise = match is_encrypting {
+            true => crypto.encrypt_with_object_and_buffer_source(
+                &js_algoritm,
+                &aes_key,
+                &payload_array
+            ).unwrap(),
+            false => crypto.decrypt_with_object_and_buffer_source(
+                &js_algoritm,
+                &aes_key,
+                &payload_array
+            ).unwrap()
+        };
+        web_sys::console::log_1(&payload_promise);
+        let payload_complete = JsFuture::from(payload_promise).await.unwrap();
         self.empty_msg_keys();
-        return Ok(payload_complete.to_vec());
-    }
-    pub async fn decrypt(&mut self, payload:Vec<u8>) -> Result<Vec<u8>, String> {
-        if self.has_processed_message() {
-            return Err("A message has already been proccessed with given id".to_string());
-        }
-        let iv_array = u8_iter_js_array(self.unique_iv.unwrap().iter());
-        let algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("AES-GCM")),
-            ("iv".to_string(), JsValue::from(iv_array)),
-        ]);
-        let mut payload_copy = payload;
-        let payload_promise = fetch_subtle_crypto().decrypt_with_object_and_u8_array(
-            &js_objectify(&algorithm),
-            self.shared_secret.as_ref().unwrap(),
-            &mut payload_copy[..]
-        ).unwrap();
-        let payload_complete:Uint8Array = JsFuture::from(payload_promise).await.unwrap().dyn_into().unwrap();
-        self.empty_msg_keys();
-        return Ok(payload_complete.to_vec());
+        return Ok(Uint8Array::new(&payload_complete).to_vec());
     }
     fn empty_msg_keys(&mut self){
         self.aes_key = None;
@@ -134,8 +127,7 @@ impl RatchetElement{
     fn has_created_next(&self) -> bool{
         return !(self.secret.is_some() 
             && self.shared_secret.is_some() 
-            && self.salt.is_some() 
-            && self.id.is_some());
+            && self.salt.is_some());
     }
     fn has_processed_message(&self) -> bool{
         return !(self.aes_key.is_some() && self.unique_iv.is_some());
@@ -147,13 +139,11 @@ impl RatchetElement{
         let ele = RatchetElement::new(
             self.shared_secret.as_ref().unwrap().clone(), 
             self.salt.as_ref().unwrap().clone(),
-            self.id.unwrap() + 1,
             Some(&self.secret.as_ref().unwrap().clone())
         ).await;
         self.secret = None;
         self.shared_secret = None;
         self.salt = None;
-        self.id = None;
         return ele;
     }
 }
