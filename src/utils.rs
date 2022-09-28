@@ -19,52 +19,47 @@ pub struct UcanCapability{
 }
 #[wasm_bindgen]
 pub struct Transitable {
-    data: String,
+    data: Vec<u8>
 }
 
 #[wasm_bindgen]
 impl Transitable {
     pub fn from_base58(input: &str) -> Transitable{
-        let vec_bytes = bs58::decode(input).into_vec().unwrap();
-        let bytes = vec_bytes.as_slice();
         return Transitable{
             //TODO: add error handling here
-            data: str::from_utf8(bytes).unwrap().to_string()
+            data: bs58::decode(input).into_vec().unwrap()
         };
     }
     pub fn from_readable(input: &str) -> Transitable{
         return Transitable{
-            data: input.to_string()
+            data: input.as_bytes().to_vec()
         }
     }
     pub fn from_bytes(input: &[u8]) -> Transitable{
         return Transitable{
-            data: str::from_utf8(input).unwrap().to_string()
+            data: input.to_vec()
         }
     }
     pub fn from_base64(input: &str) -> Transitable{
-        let vec_bytes = base64::decode(input).unwrap();
-        let bytes = vec_bytes.as_slice();
         return Transitable{
-            //TODO: add error handling here
-            data: str::from_utf8(bytes).unwrap().to_string()
+            data: base64::decode(input).unwrap()
         }
     }
     #[wasm_bindgen(getter)]
     pub fn as_base64(&self) -> String {
-        return base64::encode(self.data.clone());
+        return base64::encode(&self.data[..]);
     }
     #[wasm_bindgen(getter)]
     pub fn as_bytes(&self) -> js_sys::Uint8Array {
-        return js_sys::Uint8Array::from(&self.data.as_bytes()[..]);
+        return js_sys::Uint8Array::from(&self.data[..]);
     }
     #[wasm_bindgen(getter)]
-    pub fn as_readable(&self) -> String {
-        return self.data.to_string();
+    pub fn as_readable(&self) -> String { //Warning: This is will fail if data cannot be converted to utf8
+        return str::from_utf8(&self.data[..]).unwrap().to_string();
     }
     #[wasm_bindgen(getter)]
     pub fn as_base58(&self) -> String {
-        return bs58::encode(self.data.as_bytes()).into_string();
+        return bs58::encode(&self.data[..]).into_string();
     }
 }
 

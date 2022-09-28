@@ -90,10 +90,10 @@ async fn can_rachet_crypto_func(text_in:&str, id:u64, salt_str:&str) -> bool{
     let mut sender_ratchet = Ratchet::new(sender_key, true, salt.clone()).await;
     let mut reciever_ratchet = Ratchet::new(reciever_key, false, salt.clone()).await;
 
-    let text_in_vec =text_in.as_bytes().to_vec();
+    let text_in_vec = Transitable::from_readable(text_in);
     let sent_message = sender_ratchet.process_payload(id, text_in_vec).await.unwrap();
     let recieved_vec = reciever_ratchet.process_payload(id, sent_message).await.unwrap();
-    let recieved_text = str::from_utf8(recieved_vec.as_slice()).unwrap();
+    let recieved_text = recieved_vec.as_readable();
 
     text_in == recieved_text
 }

@@ -4,7 +4,7 @@ use std::slice::Iter;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::CryptoKey;
-use crate::utils::{js_objectify, fetch_subtle_crypto};
+use crate::utils::{js_objectify, fetch_subtle_crypto, Transitable};
 
 pub struct Ratchet{
     shared_secret:CryptoKey,
@@ -21,7 +21,7 @@ impl Ratchet{
         ratchet.secret_chain.push(RatchetElement::new(shared_secret, salt, None).await);
         return ratchet;
     }
-    pub async fn process_payload(&mut self, id:u64, payload:Vec<u8>) -> Result<Vec<u8>, String>{
+    pub async fn process_payload(&mut self, id:u64, payload:Transitable) -> Result<Transitable, String>{
         while (self.secret_chain.len() as u64) <= id {
             let last = self.secret_chain.len()-1;
             let new_ele = self.secret_chain[last].next().await;
@@ -82,7 +82,7 @@ impl RatchetElement{
             shared_secret:Some(shared_secret)
         }
     }
-    pub async fn proccess_payload(&mut self, is_encrypting:bool, payload:Vec<u8>)-> Result<Vec<u8>, String>{
+    pub async fn proccess_payload(&mut self, is_encrypting:bool, payload:Transitable)-> Result<Transitable, String>{
         if self.has_processed_message() {
             return Err("A message has already been proccessed with given id".to_string());
         }
@@ -96,8 +96,7 @@ impl RatchetElement{
         key_uses.set(0, "encrypt".into());
         key_uses.set(1, "decrypt".into());
 
-        let payload_array = Uint8Array::new_with_length(payload.len() as u32);
-        payload_array.copy_from(payload.as_slice());
+        let payload_array = payload.as_bytes();
         let crypto =  fetch_subtle_crypto();
         let js_algoritm = js_objectify(&algorithm);
         let aes_key_promise = crypto.import_key_with_str("raw", &aes_key_array, "AES-GCM", false, &key_uses).unwrap();
@@ -115,10 +114,10 @@ impl RatchetElement{
                 &payload_array
             ).unwrap()
         };
-        web_sys::console::log_1(&payload_promise);
-        let payload_complete = JsFuture::from(payload_promise).await.unwrap();
+        let payload_js = JsFuture::from(payload_promise).await.unwrap();
         self.empty_msg_keys();
-        return Ok(Uint8Array::new(&payload_complete).to_vec());
+        let payload_vec = Uint8Array::new(&payload_js).to_vec();
+        return Ok(Transitable::from_bytes(payload_vec.as_slice()));
     }
     fn empty_msg_keys(&mut self){
         self.aes_key = None;
