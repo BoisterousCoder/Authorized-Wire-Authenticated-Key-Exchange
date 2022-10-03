@@ -1,15 +1,14 @@
 use js_sys::{Uint8Array, ArrayBuffer, Array};
 use std::collections::HashMap;
-use std::slice::Iter;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::CryptoKey;
-use crate::utils::{js_objectify, fetch_subtle_crypto, Transitable};
+use crate::utils::{js_objectify, fetch_subtle_crypto, Transitable, u8_iter_js_array};
 
 pub struct Ratchet{
     shared_secret:CryptoKey,
     is_encrypting:bool,
-    secret_chain:Vec<RatchetElement>
+    secret_chain:Vec<PayloadHandler>
 }
 impl Ratchet{
     pub async fn new(shared_secret:CryptoKey, is_encrypting:bool, salt:Vec<u8>) -> Ratchet{
@@ -18,28 +17,40 @@ impl Ratchet{
             shared_secret:shared_secret.clone(),
             secret_chain: vec![]
         };
-        ratchet.secret_chain.push(RatchetElement::new(shared_secret, salt, None).await);
+        ratchet.secret_chain.push(PayloadHandler::new(shared_secret, salt, None).await);
         return ratchet;
     }
-    pub async fn process_payload(&mut self, id:u64, payload:Transitable) -> Result<Transitable, String>{
-        while (self.secret_chain.len() as u64) <= id {
-            let last = self.secret_chain.len()-1;
-            let new_ele = self.secret_chain[last].next().await;
-            self.secret_chain.push(new_ele);
+    pub async fn process_payload(&mut self, id:usize, payload:Transitable) -> Result<Transitable, String>{
+        self.gen_handlers_to(id).await;
+        return self.secret_chain[id].proccess_payload(self.is_encrypting, payload).await;
+    }
+    pub async fn set_new_shared_key(&mut self, start_id:usize, shared_secret:CryptoKey){
+        self.gen_handlers_to(start_id-1).await;
+        if self.secret_chain[start_id-1].has_created_next() || self.secret_chain.len() > start_id{
+            panic!("Note: PayloadHandlers have already been gennerated at or beyond the id {} and a new key set cannot be started", start_id);
         }
-        return self.secret_chain[id as usize].proccess_payload(self.is_encrypting, payload).await;
+        let secret = self.secret_chain[start_id-1].secret.unwrap();
+        let salt = self.secret_chain[start_id-1].salt.as_ref().unwrap().clone();
+        self.secret_chain.push(PayloadHandler::new(shared_secret, salt, Some(&secret)).await);
+    }
+    async fn gen_handlers_to(&mut self, id:usize){
+        while self.secret_chain.len() <= id {
+            let last = self.secret_chain.len()-1;
+            let new_handler = self.secret_chain[last].next().await;
+            self.secret_chain.push(new_handler);
+        }
     }
 }
 
-pub struct RatchetElement{
+struct PayloadHandler{
     secret:Option<[u8; 32]>,
     aes_key:Option<[u8; 32]>,
     unique_iv:Option<[u8; 12]>,
     salt:Option<Vec<u8>>,
     shared_secret:Option<CryptoKey>
 }
-impl RatchetElement{
-    pub async fn new(shared_secret:CryptoKey, salt:Vec<u8>, last_secret:Option<&[u8]>) -> RatchetElement{
+impl PayloadHandler{
+    pub async fn new(shared_secret:CryptoKey, salt:Vec<u8>, last_secret:Option<&[u8]>) -> PayloadHandler{
         let last_secret_array = match last_secret {
             Some(secret) => u8_iter_js_array(secret.iter()),
             None => Uint8Array::new_with_length(0)
@@ -74,7 +85,7 @@ impl RatchetElement{
             }
             i += 1;
         }
-        return RatchetElement{ 
+        return PayloadHandler{ 
             secret:Some(secret),
             aes_key:Some(aes_key), 
             unique_iv:Some(unique_iv), 
@@ -123,7 +134,7 @@ impl RatchetElement{
         self.aes_key = None;
         self.unique_iv = None;
     }
-    fn has_created_next(&self) -> bool{
+    pub fn has_created_next(&self) -> bool{
         return !(self.secret.is_some() 
             && self.shared_secret.is_some() 
             && self.salt.is_some());
@@ -131,11 +142,11 @@ impl RatchetElement{
     fn has_processed_message(&self) -> bool{
         return !(self.aes_key.is_some() && self.unique_iv.is_some());
     }
-    pub async fn next(&mut self) -> RatchetElement {
+    pub async fn next(&mut self) -> PayloadHandler {
         if self.has_created_next() {
-            panic!("This RatchetElement has already generated the next member in the chain and can not do so again");
+            panic!("This PayloadHandler has already generated the next member in the chain and can not do so again");
         }
-        let ele = RatchetElement::new(
+        let handler = PayloadHandler::new(
             self.shared_secret.as_ref().unwrap().clone(), 
             self.salt.as_ref().unwrap().clone(),
             Some(&self.secret.as_ref().unwrap().clone())
@@ -143,15 +154,6 @@ impl RatchetElement{
         self.secret = None;
         self.shared_secret = None;
         self.salt = None;
-        return ele;
+        return handler;
     }
-}
-fn u8_iter_js_array(bytes:Iter<u8>) -> Uint8Array{
-    let array = Uint8Array::new_with_length(bytes.len() as u32);
-    let mut i:u32 = 0;
-    for byte in bytes {
-        array.set_index(i, byte.clone());
-        i += 1;
-    }
-    return array;
 }

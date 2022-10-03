@@ -36,7 +36,7 @@ fn can_convert_transitable_base58(s:String) -> bool{
     //log("Converting to base 58..");
     let base_58 = Transitable::from_readable(&s).as_base58();
     //log("Converting from base 58..");
-    let s_mod = Transitable::from_base58(&base_58).as_readable();
+    let s_mod = Transitable::from_base58(&base_58).as_readable().unwrap();
     //log(&format!("Base 58 looks like:{} from {}", s, base_58));
     s == s_mod
 }
@@ -44,7 +44,7 @@ fn can_convert_transitable_base58(s:String) -> bool{
 #[quickcheck]
 fn can_convert_transitable_base64(s:String) -> bool{
     let base_64 = Transitable::from_readable(&s).as_base64();
-    let s_mod = Transitable::from_base64(&base_64).as_readable();
+    let s_mod = Transitable::from_base64(&base_64).as_readable().unwrap();
     s == s_mod
 }
 #[wasm_bindgen_test]
@@ -56,7 +56,7 @@ fn can_convert_transitable_bytes(s:String) -> bool{
     let mut bytes = vec![];
     js_bytes.for_each(&mut |byte, _, _| bytes.push(byte));
     //log("Converting from bytes..");
-    let s_mod = Transitable::from_bytes(bytes.as_slice()).as_readable();
+    let s_mod = Transitable::from_bytes(bytes.as_slice()).as_readable().unwrap();
     s == s_mod
 }
 /*
@@ -66,13 +66,13 @@ Integration Tests
 async fn can_handshake(){
     let state = Awake::new().await;
     let did_key = state.handshake_request(Array::new_with_length(0 as u32)).await;
-    let text = did_key.as_readable();
+    let text = did_key.as_readable().unwrap();
     //log(&text);
     assert!(text.contains("did:key:"));
 }
 //#[wasm_bindgen_test]
 //#[quickcheck] Note: Quick Check does not allow for futures so we'll have to do things for manually
-async fn can_rachet_crypto_func(text_in:&str, id:u64, salt_str:&str) -> bool{
+async fn can_rachet_crypto_func(text_in:&str, id:usize, salt_str:&str) -> bool{
     let salt = salt_str.as_bytes().to_vec();
 
     let algorithm = HashMap::from([
@@ -84,8 +84,8 @@ async fn can_rachet_crypto_func(text_in:&str, id:u64, salt_str:&str) -> bool{
     let (sender_puiblic, sender_private) = gen_key_pair(&crypto, &algorithm).await;
     let (reciever_puiblic, reciever_private) = gen_key_pair(&crypto, &algorithm).await;
 
-    let sender_key = diffie_helman(&crypto, sender_private, reciever_puiblic).await;
-    let reciever_key = diffie_helman(&crypto, reciever_private, sender_puiblic).await;
+    let sender_key = diffie_helman(&crypto, &sender_private, &reciever_puiblic).await;
+    let reciever_key = diffie_helman(&crypto, &reciever_private, &sender_puiblic).await;
     
     let mut sender_ratchet = Ratchet::new(sender_key, true, salt.clone()).await;
     let mut reciever_ratchet = Ratchet::new(reciever_key, false, salt.clone()).await;
@@ -95,12 +95,12 @@ async fn can_rachet_crypto_func(text_in:&str, id:u64, salt_str:&str) -> bool{
     let recieved_vec = reciever_ratchet.process_payload(id, sent_message).await.unwrap();
     let recieved_text = recieved_vec.as_readable();
 
-    text_in == recieved_text
+    text_in == recieved_text.unwrap()
 }
 
 #[wasm_bindgen_test]
 async fn can_rachet_crypto() {
-    let tests:Vec<(&str, u64, &str)> = vec![
+    let tests:Vec<(&str, usize, &str)> = vec![
         ("This is a first test", 5, "this is a salt"),
         ("T8796543213251324658479876543421654687498324438927342234fodiu>?ASS/Fds/.df/D.,sf';[]pro[pww", 0, "T8796543213251324658479876543421654687498324438927342234fodiu>?ASS/Fds/.df/D.,sf';[]pro[pww"),
         ("!@#$%^&*(){}[]:\"';<>,.?\\|", 50, "!@#$%^&*(){}[]:\"';<>,.?\\|")
