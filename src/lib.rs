@@ -3,5 +3,5 @@
 pub mod utils;
 pub mod awake;
 pub mod ratchet;
-pub mod forienAgent;
+pub mod forien_agent;
 pub mod transitable;

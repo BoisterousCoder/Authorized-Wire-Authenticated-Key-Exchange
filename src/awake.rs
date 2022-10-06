@@ -28,8 +28,8 @@ pub struct Awake{
 impl Awake{
     pub async fn new() -> Awake{
         let crypto = fetch_subtle_crypto();
-        let (handshake_public, handshake_private) = gen_key_pair(&crypto).await;
-        let (real_public, real_private) = gen_key_pair(&crypto).await;
+        let (handshake_public, handshake_private) = gen_key_pair(&crypto, false).await;
+        let (real_public, real_private) = gen_key_pair(&crypto, true).await;
         return Awake{
             handshake_public:Some(handshake_public),
             handshake_private:Some(handshake_private),
@@ -50,7 +50,7 @@ impl Awake{
         let cap_json = capabilities_to_value(capabilities);
         let mut payload = Transitable::from_readable(&format!("{{
             \"awv\": \"0.1.0\",
-            \"type\": \"awake/handshake_request\",
+            \"type\": \"awake/init\",
             \"did\":\"{}\",
             \"caps\": {}
         }}", issuer_did, cap_json));
@@ -81,10 +81,10 @@ impl Awake{
         let cap_json = capabilities_to_value(capabilities);
         let plain_message = Transitable::from_readable(&format!("{{
             \"awv\": \"0.1.0\",
-            \"type\": \"awake/handshake_reponse\",
+            \"type\": \"awake/res\",
             \"aud\":\"{}\",
             \"iss\": \"{}\",
-            \"caps\": {}
+            \"msg\": {}
         }}", forien_did_key, self_did, cap_json));
         let (_, mut encrypted_message) = agent.encrypt_for(plain_message).await;
         encrypted_message.sign(&self.crypto, &self.real_private).await;

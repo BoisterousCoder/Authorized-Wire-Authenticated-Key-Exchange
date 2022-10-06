@@ -56,7 +56,7 @@ impl ForienAgent{
         let shared_secret = diffie_helman(&crypto, &private_key, &forien_key).await;
 
         self.send_ratchet.set_new_shared_key(id, shared_secret.clone());
-        self.recieve_ratchet.set_new_shared_key(id, shared_secret);
+        self.recieve_ratchet.set_new_shared_key(id, shared_secret).await;
     }
     pub async fn encrypt_for(&mut self, payload:Transitable) -> (usize, Transitable){
         let future = self.send_ratchet.process_payload(self.next_send_id, payload);

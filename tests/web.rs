@@ -81,7 +81,7 @@ async fn can_sign(){
 
 async fn can_sign_func(payload:&str) -> bool{
     let crypto = fetch_subtle_crypto();
-    let (public_key, private_key) = gen_key_pair(&crypto).await;
+    let (public_key, private_key) = gen_key_pair(&crypto, true).await;
 
     let mut data = Transitable::from_readable(payload);
     data.sign(&crypto, &private_key).await;
@@ -99,8 +99,8 @@ async fn can_fail_sign(){
 
 async fn can_fail_sign_func(payload:&str) -> bool{
     let crypto = fetch_subtle_crypto();
-    let (public_key_imposter, _) = gen_key_pair(&crypto).await;
-    let (_, private_key) = gen_key_pair(&crypto).await;
+    let (public_key_imposter, _) = gen_key_pair(&crypto, true).await;
+    let (_, private_key) = gen_key_pair(&crypto, true).await;
 
     let mut data = Transitable::from_readable(payload);
     data.sign(&crypto, &private_key).await;
@@ -112,8 +112,8 @@ async fn can_rachet_crypto_func(text_in:&str, id:usize, salt_str:&str) -> bool{
     let salt = salt_str.as_bytes().to_vec();
     let crypto = fetch_subtle_crypto();
 
-    let (sender_public, sender_private) = gen_key_pair(&crypto).await;
-    let (reciever_public, reciever_private) = gen_key_pair(&crypto).await;
+    let (sender_public, sender_private) = gen_key_pair(&crypto, false).await;
+    let (reciever_public, reciever_private) = gen_key_pair(&crypto, false).await;
 
     let sender_key = diffie_helman(&crypto, &sender_private, &reciever_public).await;
     let reciever_key = diffie_helman(&crypto, &reciever_private, &sender_public).await;

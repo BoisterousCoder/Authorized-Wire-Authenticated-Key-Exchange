@@ -38,7 +38,7 @@ struct ObjectProperty {
     writable:bool
 }
 
-pub async fn gen_key_pair(crypto:&SubtleCrypto) -> (CryptoKey, CryptoKey){
+pub async fn gen_key_pair(crypto:&SubtleCrypto, is_extractable:bool) -> (CryptoKey, CryptoKey){
     let algorithm = HashMap::from([
         ("name".to_string(), JsValue::from_str("ECDH")),
         ("namedCurve".to_string(), JsValue::from_str("P-256")),
@@ -47,7 +47,7 @@ pub async fn gen_key_pair(crypto:&SubtleCrypto) -> (CryptoKey, CryptoKey){
     key_uses_array.set(0, JsValue::from("deriveBits"));
     key_uses_array.set(1, JsValue::from("deriveKey"));
     let js_algorithm = js_objectify(&algorithm);
-    let key_pair_promise = crypto.generate_key_with_object(&js_algorithm, true, &key_uses_array).unwrap();
+    let key_pair_promise = crypto.generate_key_with_object(&js_algorithm, is_extractable, &key_uses_array).unwrap();
     let key_pair_future = JsFuture::from(key_pair_promise);
     let key_pair_object:Object = key_pair_future.await.unwrap().dyn_into().unwrap();
     return object_to_keypair(&key_pair_object);
