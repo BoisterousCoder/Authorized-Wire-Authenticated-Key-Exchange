@@ -210,7 +210,7 @@ fn array_to_vec(array:Array) -> Vec<JsValue>{
     }
     return vector;
 }
-fn hash_map_to_object(map: HashMap<String, JsValue>) -> Object{
+pub fn hash_map_to_object(map: HashMap<String, JsValue>) -> Object{
     let entries = Array::new_with_length(map.len() as u32);
     let mut i:u32 = 0;
     for (key, value) in map {

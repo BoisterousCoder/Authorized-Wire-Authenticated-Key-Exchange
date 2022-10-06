@@ -9,7 +9,7 @@ use js_sys::Uint8Array;
 
 use crate::ratchet::Ratchet;
 use crate::transitable::Transitable;
-use crate::utils::{diffie_helman, js_objectify, fetch_subtle_crypto, did_key_to_crypto_key};
+use crate::utils::{diffie_helman, js_objectify, fetch_subtle_crypto, did_key_to_crypto_key, crypto_key_to_did_key};
 
 pub struct ForienAgent{
     pub did:String,
@@ -18,8 +18,12 @@ pub struct ForienAgent{
     recieve_ratchet:Ratchet
 }
 impl ForienAgent{
-    pub async fn new(private_key:&CryptoKey, forien_did:&str, salt:Vec<u8>) -> ForienAgent{
+    pub async fn new(private_key:&CryptoKey, forien_did:&str, requestor_public_key:Option<&CryptoKey>) -> ForienAgent{
         let crypto = fetch_subtle_crypto();
+        let salt = match requestor_public_key{
+            Some(salt_key) => crypto_key_to_did_key(&crypto, salt_key).await.as_bytes().to_vec(),
+            None => forien_did.as_bytes().to_vec()
+        };
         let forien_key = did_key_to_crypto_key(&crypto, forien_did).await;
         let shared_secret = diffie_helman(&crypto, private_key, &forien_key).await;
         return ForienAgent{
@@ -29,11 +33,12 @@ impl ForienAgent{
             recieve_ratchet: Ratchet::new(shared_secret, false, salt).await
         }
     }
+    pub async fn is_sender_of(&self, payload:&Transitable) -> bool{
+        let crypto = fetch_subtle_crypto();
+        let key = did_key_to_crypto_key(&crypto, &self.did).await;
+        return payload.verify(&crypto, &key).await;
+    }
     pub async fn set_new_shared_key(&mut self, id:usize, private_key:CryptoKey, forien_did:&str){
-        let algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("ECDH")),
-            ("namedCurve".to_string(), JsValue::from_str("P-256")),
-        ]);
         let crypto = fetch_subtle_crypto();
         let forien_key = did_key_to_crypto_key(&crypto, forien_did).await;
         self.did = forien_did.to_string();

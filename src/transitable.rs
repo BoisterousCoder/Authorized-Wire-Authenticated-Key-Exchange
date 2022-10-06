@@ -40,7 +40,7 @@ impl Transitable {
             data: base64::decode(input).unwrap()
         }
     }
-    pub async fn sign(&mut self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey){
+    pub async fn sign(&self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey) -> Transitable{
         let payload_str = match self.as_readable() {
             Some(x) => x,
             None => panic!("could not format as jwt as the data was not a string")
@@ -67,7 +67,7 @@ impl Transitable {
         let signature_vec = signature_array.to_vec();
         let signature_b64 = base64::encode(signature_vec.as_slice());
     
-        self.data = format!("{}.{}.{}", header_b64, payload_b64, signature_b64).as_bytes().to_vec();
+        Transitable::from_readable(&format!("{}.{}.{}", header_b64, payload_b64, signature_b64))
     }
     pub async fn verify(&self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey) -> bool{
         let ecdsa_key = get_ecdsa_key(crypto, ecdh_key, false).await;
@@ -97,8 +97,8 @@ impl Transitable {
         }
         return base64::decode(sections[i]).unwrap().to_vec();
     }
-    pub fn unsign(&mut self){
-        self.data = self.get_jwt_section(2);
+    pub fn unsign(&self) -> Transitable{
+        Transitable::from_bytes(&self.get_jwt_section(2))
     }
     #[wasm_bindgen(getter)]
     pub fn as_base64(&self) -> String {

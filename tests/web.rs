@@ -11,7 +11,6 @@ use std::str;
 
 use awake::utils::{gen_key_pair, fetch_subtle_crypto, diffie_helman};
 use awake::transitable::Transitable;
-use awake::awake::Awake;
 use awake::ratchet::Ratchet;
 use wasm_bindgen_test::*;
 use quickcheck_macros::quickcheck;
@@ -83,8 +82,7 @@ async fn can_sign_func(payload:&str) -> bool{
     let crypto = fetch_subtle_crypto();
     let (public_key, private_key) = gen_key_pair(&crypto, true).await;
 
-    let mut data = Transitable::from_readable(payload);
-    data.sign(&crypto, &private_key).await;
+    let data = Transitable::from_readable(payload).sign(&crypto, &private_key).await;
     return data.verify(&crypto, &public_key).await;
 }
 #[wasm_bindgen_test]
@@ -102,8 +100,7 @@ async fn can_fail_sign_func(payload:&str) -> bool{
     let (public_key_imposter, _) = gen_key_pair(&crypto, true).await;
     let (_, private_key) = gen_key_pair(&crypto, true).await;
 
-    let mut data = Transitable::from_readable(payload);
-    data.sign(&crypto, &private_key).await;
+    let data = Transitable::from_readable(payload).sign(&crypto, &private_key).await;
     return !data.verify(&crypto, &public_key_imposter).await;
 }
 //#[wasm_bindgen_test]
