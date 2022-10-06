@@ -40,6 +40,27 @@ impl Transitable {
             data: base64::decode(input).unwrap()
         }
     }
+    #[wasm_bindgen(getter)]
+    pub fn as_base64(&self) -> String {
+        return base64::encode(&self.data[..]);
+    }
+    #[wasm_bindgen(getter)]
+    pub fn as_bytes(&self) -> js_sys::Uint8Array {
+        return js_sys::Uint8Array::from(&self.data[..]);
+    }
+    #[wasm_bindgen(getter)]
+    pub fn as_readable(&self) -> Option<String> {
+        return match str::from_utf8(&self.data[..]) {
+            Ok(readable) => Some(readable.to_string()),
+            Err(_) => None
+        };
+    }
+    #[wasm_bindgen(getter)]
+    pub fn as_base58(&self) -> String {
+        return bs58::encode(&self.data[..]).into_string();
+    }
+}
+impl Transitable {
     pub async fn sign(&self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey) -> Transitable{
         let payload_str = match self.as_readable() {
             Some(x) => x,
@@ -99,24 +120,5 @@ impl Transitable {
     }
     pub fn unsign(&self) -> Transitable{
         Transitable::from_bytes(&self.get_jwt_section(2))
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_base64(&self) -> String {
-        return base64::encode(&self.data[..]);
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_bytes(&self) -> js_sys::Uint8Array {
-        return js_sys::Uint8Array::from(&self.data[..]);
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_readable(&self) -> Option<String> {
-        return match str::from_utf8(&self.data[..]) {
-            Ok(readable) => Some(readable.to_string()),
-            Err(_) => None
-        };
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_base58(&self) -> String {
-        return bs58::encode(&self.data[..]).into_string();
     }
 }

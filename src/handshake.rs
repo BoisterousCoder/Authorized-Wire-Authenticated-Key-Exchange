@@ -64,7 +64,7 @@ impl Handshake{
     //Part 3.3 from spec
     pub async fn reponse(
         &mut self, 
-        handshake_request_signed:Transitable, //The handshake request you are trying to respond to
+        request_signed:Transitable, //The handshake request you are trying to respond to
         capabilities: Array, //The capabilities you have and are trying to prove to them
         lifetime: u64, //how long should the ucan be valid for
         are_capabilities_valid: Function //passes in the capabilities they want to prove and passes out a boolean on if you deem them valid
@@ -76,10 +76,10 @@ impl Handshake{
         let self_did = crypto_key_to_did_key(&self.crypto, &self.real_public);
 
         //get requestor's data from request
-        let handshake_request = handshake_request_signed.unsign();
-        let request_str = match handshake_request.as_readable(){
+        let request = request_signed.unsign();
+        let request_str = match request.as_readable(){
             Some(x) => x,
-            None => panic!("The handshake init was not sent properly or the transitable is not a handshake_request")
+            None => panic!("The handshake init was not sent properly or the transitable is not a handshake request")
         };
         let request_map:Value = match serde_json::from_str(&request_str){
             Ok(x) => x,
@@ -91,7 +91,7 @@ impl Handshake{
         let mut agent = ForienAgent::new(&self.step_1_private, forien_did_key, None).await;
 
         //verify sender of the request
-        if !agent.is_sender_of(&handshake_request_signed).await { panic!("Failed to verify sender's signature")}
+        if !agent.is_sender_of(&request_signed).await { panic!("Failed to verify sender's signature")}
 
         //verify the capabilities of the request
         let caps_map:HashMap<String, String> = serde_json::from_value(request_map["caps"].clone()).unwrap();
@@ -110,6 +110,7 @@ impl Handshake{
             "awake/nextdid": crypto_key_to_did_key(&self.crypto, &self.step_4_public).await
         });
 
+        //build ucan message
         let ucan = UcanBuilder::default()
             .issued_by(&UcanEcdhKey::from_crypto_key(self.real_public.clone()))
             .for_audience(forien_did_key)
@@ -120,10 +121,11 @@ impl Handshake{
             .sign().await.unwrap()
             .encode().unwrap();
         
+        //encrypt the ucan and add agent to the list of potential agents
         let (_, encrypted_ucan) = agent.encrypt_for(Transitable::from_readable(&ucan)).await;
-
         self.potential_partners.push(agent);
 
+        //build the response 
         let mut response = Transitable::from_readable(&format!("{{
             \"awv\": \"0.1.0\",
             \"type\": \"awake/res\",
@@ -133,6 +135,10 @@ impl Handshake{
         }}", forien_did_key, self_did.await, encrypted_ucan.as_base64()));
         response.sign(&self.crypto, &self.real_private).await;
         return response;
+    }
+    //part 3.4 from spec
+    pub async fn challenge_response(){
+
     }
 }
 
