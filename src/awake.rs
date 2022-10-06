@@ -79,7 +79,7 @@ impl Awake{
         let self_did = crypto_key_to_did_key(&self.crypto, &self.real_public).await;
         let cap_json = capabilities_to_value(capabilities);
         let ucan = UcanBuilder::default()
-            .issued_by(UcanEcdhKey::from_did(&self.crypto, &self_did))
+            .issued_by(&UcanEcdhKey::from_did(&self.crypto, &self_did).await)
             .for_audience(forien_did_key)
             .with_lifetime(lifetime)
             .build().unwrap()

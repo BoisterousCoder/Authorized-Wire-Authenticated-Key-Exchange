@@ -27,14 +27,14 @@ impl ucan::crypto::KeyMaterial for UcanEcdhKey {
     fn get_did<'life0, 'async_trait>(&'life0 self) 
         -> Pin<Box<dyn Future<Output = Result<String, anyhow::Error>> + 'async_trait>>
         where 'life0: 'async_trait,Self: 'async_trait {
-        return Box::pin(async {
+        return Box::pin(async move {
             Ok::<String, anyhow::Error>(crypto_key_to_did_key(&fetch_subtle_crypto(), &self.key).await)
         });
     }
     fn sign<'life0, 'life1, 'async_trait>(&'life0 self, payload: &'life1 [u8]) 
         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, anyhow::Error>> + 'async_trait>>
         where 'life0: 'async_trait, 'life1: 'async_trait,Self: 'async_trait{
-        return Box::pin(async {
+        return Box::pin(async move {
             let crypto = fetch_subtle_crypto();
             let ecdsa_key = get_ecdsa_key(&crypto, &self.key, true).await;
             let algorithm = HashMap::from([
@@ -54,7 +54,7 @@ impl ucan::crypto::KeyMaterial for UcanEcdhKey {
     fn verify<'life0, 'life1, 'life2, 'async_trait>(&'life0 self, payload: &'life1 [u8], signature: &'life2 [u8]) 
         -> Pin<Box<dyn Future<Output = Result<(), anyhow::Error>> + 'async_trait>>
         where 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait, Self: 'async_trait{
-        return Box::pin( async {
+        return Box::pin( async move {
             let crypto = fetch_subtle_crypto();
             let ecdsa_key = get_ecdsa_key(&crypto, &self.key, false).await;
             let algorithm = HashMap::from([
