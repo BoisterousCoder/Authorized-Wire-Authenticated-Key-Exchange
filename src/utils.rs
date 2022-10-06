@@ -7,126 +7,14 @@ use wasm_bindgen::{JsValue, JsCast};
 use wasm_bindgen_futures::JsFuture;
 
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
 
 use web_sys::{SubtleCrypto, CryptoKey};
 use js_sys::{Object, Array, JSON, Uint8Array};
 
 use std::collections::HashMap;
 use std::slice::Iter;
-use std::str;
-
-#[wasm_bindgen]
-pub struct Transitable {
-    data: Vec<u8>
-}
-
-#[wasm_bindgen]
-impl Transitable {
-    pub fn from_base58(input: &str) -> Transitable{
-        return Transitable{
-            //TODO: add error handling here
-            data: bs58::decode(input).into_vec().unwrap()
-        };
-    }
-    pub fn from_readable(input: &str) -> Transitable{
-        return Transitable{
-            data: input.as_bytes().to_vec()
-        }
-    }
-    pub fn from_bytes(input: &[u8]) -> Transitable{
-        return Transitable{
-            data: input.to_vec()
-        }
-    }
-    pub fn from_base64(input: &str) -> Transitable{
-        return Transitable{
-            data: base64::decode(input).unwrap()
-        }
-    }
-    pub async fn format_as_jwt(&mut self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey){
-        let payload_str = match self.as_readable() {
-            Some(x) => x,
-            None => panic!("could not format as jwt as the data was not a string")
-        };
-        //convert ecdh key to ecdsa key
-        let ecdsa_key = get_ecdsa_key(crypto, ecdh_key).await;
-        let algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("ECDSA")),
-            ("hash".to_string(), JsValue::from_str("SHA-512")),
-        ]);
-        
-        //let mut payload_bytes = payload_str.as_bytes().copy();
-        let payload_b64 = base64::encode(payload_str.as_bytes());
-        let header_text = "{{\"alg\": \"ES512\", \"typ\": \"JWT\" }}";
-        let header_b64 = base64::encode(header_text.as_bytes());
-    
-        let signature_promise = crypto.sign_with_object_and_buffer_source(
-            &js_objectify(&algorithm), 
-            &ecdsa_key,
-            &u8_iter_js_array(payload_str.as_bytes().to_vec().iter())
-        ).unwrap();
-        let signature_js = JsFuture::from(signature_promise).await.unwrap();
-        let signature_array = Uint8Array::new(&signature_js);
-        let signature_vec = signature_array.to_vec();
-        let signature = base64::encode(signature_vec.as_slice());
-    
-        self.data = format!("{}.{}.{}", header_b64, payload_b64, signature).as_bytes().to_vec();
-    }
-    pub async fn verify(&self, crypto:&SubtleCrypto, ecdh_key:&CryptoKey) -> bool{
-        let ecdsa_key = get_ecdsa_key(crypto, ecdh_key).await;
-        let algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("ECDSA")),
-            ("hash".to_string(), JsValue::from_str("SHA-512")),
-        ]);
-        let payload = u8_iter_js_array(self.get_jwt_section(2).iter());
-        let signatute = u8_iter_js_array(self.get_jwt_section(3).iter());
-        let is_sender_future = crypto.verify_with_object_and_buffer_source_and_buffer_source(
-            &js_objectify(&algorithm),
-            &ecdsa_key,
-            &signatute,
-            &payload
-        ).unwrap();
-        let is_sender_js = JsFuture::from(is_sender_future).await.unwrap();
-        return is_sender_js.as_bool().unwrap()
-    }
-    fn get_jwt_section(&self, i:usize) -> Vec<u8>{
-        let jwt_str = match self.as_readable() {
-            Some(x) => x,
-            None => panic!("Error: This transitable is either not a Json Web Token or is improperly formatted")
-        };
-        let sections:Vec<&str> =jwt_str.split(".").collect();
-        if sections.len() != 3 {
-            panic!("Error: This transitable is either not a Json Web Token or is improperly formatted")
-        }
-        return base64::decode(sections[i]).unwrap().to_vec();
-    }
-    pub fn deformat_from_jwt(&mut self){
-        self.data = self.get_jwt_section(2);
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_base64(&self) -> String {
-        return base64::encode(&self.data[..]);
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_bytes(&self) -> js_sys::Uint8Array {
-        return js_sys::Uint8Array::from(&self.data[..]);
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_readable(&self) -> Option<String> {
-        return match str::from_utf8(&self.data[..]) {
-            Ok(readable) => Some(readable.to_string()),
-            Err(_) => None
-        };
-    }
-    #[wasm_bindgen(getter)]
-    pub fn as_base58(&self) -> String {
-        return bs58::encode(&self.data[..]).into_string();
-    }
-}
 
 pub fn js_objectify(props:&HashMap<String, JsValue>) -> Object{
-    let mut obj = Object::new();
     let obj_array = Array::new_with_length(props.len() as u32);
     let mut i:u32 = 0;
     for (prop, val) in props {
@@ -150,12 +38,16 @@ struct ObjectProperty {
     writable:bool
 }
 
-pub async fn gen_key_pair(crypto:&SubtleCrypto, algorithm:&HashMap<String, JsValue>) -> (CryptoKey, CryptoKey){
+pub async fn gen_key_pair(crypto:&SubtleCrypto) -> (CryptoKey, CryptoKey){
+    let algorithm = HashMap::from([
+        ("name".to_string(), JsValue::from_str("ECDH")),
+        ("namedCurve".to_string(), JsValue::from_str("P-256")),
+    ]);
     let key_uses_array:Array = Array::new_with_length(2);
     key_uses_array.set(0, JsValue::from("deriveBits"));
     key_uses_array.set(1, JsValue::from("deriveKey"));
-    let js_algorithm = js_objectify(algorithm);
-    let key_pair_promise = crypto.generate_key_with_object(&js_algorithm, false, &key_uses_array).unwrap();
+    let js_algorithm = js_objectify(&algorithm);
+    let key_pair_promise = crypto.generate_key_with_object(&js_algorithm, true, &key_uses_array).unwrap();
     let key_pair_future = JsFuture::from(key_pair_promise);
     let key_pair_object:Object = key_pair_future.await.unwrap().dyn_into().unwrap();
     return object_to_keypair(&key_pair_object);
@@ -204,28 +96,49 @@ pub fn object_to_keypair(obj: &Object) -> (CryptoKey, CryptoKey){
     return (public_key.unwrap(), private_key.unwrap());
 }
 
-pub async fn get_ecdsa_key(crypto:&SubtleCrypto, ecdh_key:&CryptoKey) -> CryptoKey{
+pub async fn get_ecdsa_key(crypto:&SubtleCrypto, ecdh_key:&CryptoKey, is_sign_key:bool) -> CryptoKey{
     let algorithm = HashMap::from([
         ("name".to_string(), JsValue::from_str("ECDSA")),
         ("namedCurve".to_string(), JsValue::from_str("P-256")),
     ]);
     
-    let key_uses_array:Array = Array::new_with_length(2);
-    key_uses_array.set(0, JsValue::from("sign"));
-    key_uses_array.set(1, JsValue::from("verify"));
+    let key_uses_array:Array = Array::new_with_length(1);
+    if is_sign_key { key_uses_array.set(0, JsValue::from("sign")); }
+    else {key_uses_array.set(0, JsValue::from("verify"));}
 
-    let ecdsa_key_data_promise = crypto.export_key("raw", ecdh_key).unwrap();
-    let ecdsa_key_data = JsFuture::from(ecdsa_key_data_promise).await.unwrap();
-    let ecdsa_key_data_obj:Object = ecdsa_key_data.dyn_into().unwrap();
+    let key_data_promise = crypto.export_key("jwk", ecdh_key).unwrap();
+    let key_data_jwk = JsFuture::from(key_data_promise).await.unwrap();
+    let mut key_data_map = obj_to_hash_map(&key_data_jwk.dyn_into().unwrap());
+    let key_data_map_override:HashMap<String, JsValue> = HashMap::from([
+        ("alg".to_string(), JsValue::from("ES256")),
+        ("crv".to_string(), JsValue::from("P-256")),
+        ("ext".to_string(), JsValue::from(true)),
+        ("kty".to_string(), JsValue::from("EC")),
+        ("key_ops".to_string(), JsValue::from(&key_uses_array))
+    ]);
+    let key_data_map = overwrite_hash_map(&key_data_map_override, &key_data_map);
+    let key_data = hash_map_to_object(key_data_map);
+
     let ecdsa_key_promise = crypto.import_key_with_object(
-        "raw",
-        &ecdsa_key_data_obj,
+        "jwk",
+        &key_data,
         &js_objectify(&algorithm), 
         false,
         &key_uses_array
     ).unwrap();
     let ecdsa_key = JsFuture::from(ecdsa_key_promise).await.unwrap();
     return ecdsa_key.dyn_into().unwrap();
+}
+
+pub fn overwrite_hash_map<K, V>(top: &HashMap<K, V>, bot: &HashMap<K, V>) -> HashMap<K, V>
+    where K: std::hash::Hash, K: std::cmp::Eq, K: Clone, V: Clone{
+    let mut out = top.clone();
+    for (key, value) in bot {
+        if !out.contains_key(key){
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    return out;
 }
 
 pub fn u8_iter_js_array(bytes:Iter<u8>) -> Uint8Array{
@@ -236,6 +149,42 @@ pub fn u8_iter_js_array(bytes:Iter<u8>) -> Uint8Array{
         i += 1;
     }
     return array;
+}
+
+fn obj_to_hash_map(obj:&Object) -> HashMap<String, JsValue>{
+    let keys = array_to_vec(Object::keys(obj));
+    let values = array_to_vec(Object::values(obj));
+
+    let mut i = 0;
+    let mut ret:HashMap<String, JsValue> = HashMap::new();
+    for value in values{
+        ret.insert(keys[i].as_string().unwrap(), value);
+        i += 1;
+    }
+    return ret;
+}
+
+fn array_to_vec(array:Array) -> Vec<JsValue>{
+    let mut vector:Vec<JsValue> = vec![];
+    let length = array.length();
+    let mut i:u32 = 0;
+    while i < length {
+        vector.push(array.get(i));
+        i += 1;
+    }
+    return vector;
+}
+fn hash_map_to_object(map: HashMap<String, JsValue>) -> Object{
+    let entries = Array::new_with_length(map.len() as u32);
+    let mut i:u32 = 0;
+    for (key, value) in map {
+        let entry = Array::new_with_length(2);
+        entry.set(0, JsValue::from(key));
+        entry.set(1, value);
+        entries.set(i, JsValue::from(entry));
+        i += 1;
+    }
+    return Object::from_entries(&entries.dyn_into().unwrap()).unwrap();
 }
 
 #[derive(Serialize, Deserialize)]
@@ -264,7 +213,7 @@ impl UcanCapability{
                     None => panic!("the can property of a capibility must be a string value")
                 };
             }else if prop == "nb".to_string(){
-                let obj:Object = entry.get(1).dyn_into().unwrap();
+                // let obj:Object = entry.get(1).dyn_into().unwrap();
                 nb = match JSON::stringify(&entry.get(1)) {
                     Ok(x) => x.as_string(),
                     Err(_) => panic!("cannot convert nb to json value")

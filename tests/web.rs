@@ -4,12 +4,13 @@
 
 extern crate wasm_bindgen_test;
 use std::collections::HashMap;
-use std::{assert, print, format};
+use std::{assert, print, format, vec};
 use js_sys::Array;
 use wasm_bindgen::JsValue;
 use std::str;
 
-use awake::utils::{Transitable, gen_key_pair, fetch_subtle_crypto, diffie_helman};
+use awake::utils::{gen_key_pair, fetch_subtle_crypto, diffie_helman};
+use awake::transitable::Transitable;
 use awake::awake::Awake;
 use awake::ratchet::Ratchet;
 use wasm_bindgen_test::*;
@@ -20,6 +21,12 @@ wasm_bindgen_test_configure!(run_in_browser);
 
 
 const ALLOW_LOGGING:bool = true;
+//Note: While I do property based testing where it's possible the quickcheck library does not support async fuctions so I use normal tests everywhere else
+static TEST_STRINGS: &'static [&'static str] = &[
+    "This is a first test",
+    "!@#$%^&*(){}[]:\"';<>,.?\\|", 
+    "T8796543213251324658479876543421654687498324438927342234fodiu>?ASS/Fds/.df/D.,sf';[]pro[pww"
+];
 
 fn log(msg:&str){
     if ALLOW_LOGGING {
@@ -63,29 +70,53 @@ fn can_convert_transitable_bytes(s:String) -> bool{
 Integration Tests
 // */
 #[wasm_bindgen_test]
-async fn can_handshake(){
-    let state = Awake::new().await;
-    let did_key = state.handshake_request(Array::new_with_length(0 as u32)).await;
-    let text = did_key.as_readable().unwrap();
-    //log(&text);
-    assert!(text.contains("did:key:"));
+async fn can_sign(){
+    for payload in TEST_STRINGS {
+        if !can_sign_func(payload).await {
+            panic!("failed with payload:{}", payload);
+        }
+    }
+    assert!(true);
+}
+
+async fn can_sign_func(payload:&str) -> bool{
+    let crypto = fetch_subtle_crypto();
+    let (public_key, private_key) = gen_key_pair(&crypto).await;
+
+    let mut data = Transitable::from_readable(payload);
+    data.sign(&crypto, &private_key).await;
+    return data.verify(&crypto, &public_key).await;
+}
+#[wasm_bindgen_test]
+async fn can_fail_sign(){
+    for payload in TEST_STRINGS {
+        if !can_fail_sign_func(payload).await {
+            panic!("failed with payload:{}", payload);
+        }
+    }
+    assert!(true);
+}
+
+async fn can_fail_sign_func(payload:&str) -> bool{
+    let crypto = fetch_subtle_crypto();
+    let (public_key_imposter, _) = gen_key_pair(&crypto).await;
+    let (_, private_key) = gen_key_pair(&crypto).await;
+
+    let mut data = Transitable::from_readable(payload);
+    data.sign(&crypto, &private_key).await;
+    return !data.verify(&crypto, &public_key_imposter).await;
 }
 //#[wasm_bindgen_test]
 //#[quickcheck] Note: Quick Check does not allow for futures so we'll have to do things for manually
 async fn can_rachet_crypto_func(text_in:&str, id:usize, salt_str:&str) -> bool{
     let salt = salt_str.as_bytes().to_vec();
-
-    let algorithm = HashMap::from([
-        ("name".to_string(), JsValue::from_str("ECDH")),
-        ("namedCurve".to_string(), JsValue::from_str("P-256")),
-    ]);
     let crypto = fetch_subtle_crypto();
 
-    let (sender_puiblic, sender_private) = gen_key_pair(&crypto, &algorithm).await;
-    let (reciever_puiblic, reciever_private) = gen_key_pair(&crypto, &algorithm).await;
+    let (sender_public, sender_private) = gen_key_pair(&crypto).await;
+    let (reciever_public, reciever_private) = gen_key_pair(&crypto).await;
 
-    let sender_key = diffie_helman(&crypto, &sender_private, &reciever_puiblic).await;
-    let reciever_key = diffie_helman(&crypto, &reciever_private, &sender_puiblic).await;
+    let sender_key = diffie_helman(&crypto, &sender_private, &reciever_public).await;
+    let reciever_key = diffie_helman(&crypto, &reciever_private, &sender_public).await;
     
     let mut sender_ratchet = Ratchet::new(sender_key, true, salt.clone()).await;
     let mut reciever_ratchet = Ratchet::new(reciever_key, false, salt.clone()).await;

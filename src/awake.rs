@@ -2,12 +2,12 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{SubtleCrypto, CryptoKey};
-use js_sys::{Uint8Array, Array, ArrayBuffer, Object};
+use js_sys::{Uint8Array, Array};
 use std::collections::HashMap;
-use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::utils::*;
+use crate::transitable::Transitable;
 use crate::forienAgent::ForienAgent;
 
 const DID_KEY_PREFIX:&str = "did:key:";
@@ -28,12 +28,8 @@ pub struct Awake{
 impl Awake{
     pub async fn new() -> Awake{
         let crypto = fetch_subtle_crypto();
-        let handshake_algorithm = HashMap::from([
-            ("name".to_string(), JsValue::from_str("ECDH")),
-            ("namedCurve".to_string(), JsValue::from_str("P-256")),
-        ]);
-        let (handshake_public, handshake_private) = gen_key_pair(&crypto, &handshake_algorithm).await;
-        let (real_public, real_private) = gen_key_pair(&crypto, &handshake_algorithm).await;
+        let (handshake_public, handshake_private) = gen_key_pair(&crypto).await;
+        let (real_public, real_private) = gen_key_pair(&crypto).await;
         return Awake{
             handshake_public:Some(handshake_public),
             handshake_private:Some(handshake_private),
@@ -58,7 +54,7 @@ impl Awake{
             \"did\":\"{}\",
             \"caps\": {}
         }}", issuer_did, cap_json));
-        payload.format_as_jwt(&self.crypto, &self.real_private).await;
+        payload.sign(&self.crypto, &self.real_private).await;
         return payload;
     }
     //Part 3.3 from spec
@@ -90,13 +86,13 @@ impl Awake{
             \"iss\": \"{}\",
             \"caps\": {}
         }}", forien_did_key, self_did, cap_json));
-        let (_, encrypted_message) = agent.encrypt_for(plain_message).await;
-
+        let (_, mut encrypted_message) = agent.encrypt_for(plain_message).await;
+        encrypted_message.sign(&self.crypto, &self.real_private).await;
         match &mut self.potential_partners{
             Some(partners) => partners.push(agent),
             None => ()
         }
-        return Transitable::from_readable(forien_did_key);
+        return encrypted_message;
     }
     pub fn has_conducted_handshake(&self) -> bool {
         return !(self.handshake_private.is_some() && self.handshake_public.is_some() && self.potential_partners.is_some())

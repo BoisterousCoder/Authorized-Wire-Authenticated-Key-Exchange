@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::CryptoKey;
-use crate::utils::{js_objectify, fetch_subtle_crypto, Transitable, u8_iter_js_array};
+
+use crate::transitable::Transitable;
+use crate::utils::{js_objectify, fetch_subtle_crypto, u8_iter_js_array};
 
 pub struct Ratchet{
     shared_secret:CryptoKey,

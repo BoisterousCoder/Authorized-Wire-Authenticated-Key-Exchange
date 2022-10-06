@@ -4,6 +4,4 @@ pub mod utils;
 pub mod awake;
 pub mod ratchet;
 pub mod forienAgent;
-
-use wasm_bindgen::prelude::*;
-use crate::awake::Awake;
+pub mod transitable;

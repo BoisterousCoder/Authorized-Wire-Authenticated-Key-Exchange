@@ -1,13 +1,15 @@
 use web_sys::{CryptoKey};
 
-use crate::utils::{Transitable, diffie_helman, js_objectify, fetch_subtle_crypto};
 use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use std::collections::HashMap;
 use web_sys::SubtleCrypto;
 use js_sys::Uint8Array;
+
 use crate::ratchet::Ratchet;
+use crate::transitable::Transitable;
+use crate::utils::{diffie_helman, js_objectify, fetch_subtle_crypto};
 
 const DID_KEY_PREFIX:&str = "did:key:";
 const DID_KEY_PREFIX_NIST256:&str = "zDn";
