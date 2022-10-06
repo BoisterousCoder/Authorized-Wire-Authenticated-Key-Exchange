@@ -55,4 +55,7 @@ impl ForienAgent{
     pub async fn decrypt_for(&mut self, id:usize, payload:Transitable) -> Transitable{
         return self.recieve_ratchet.process_payload(id, payload).await.unwrap();
     }
+    pub fn empty_decryptor(&mut self, id:usize){
+        self.recieve_ratchet.empty_decryptor(id);
+    }
 }

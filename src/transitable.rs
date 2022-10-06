@@ -1,11 +1,9 @@
 use wasm_bindgen::prelude::wasm_bindgen;
-use wasm_bindgen::{JsValue, JsCast};
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 
-use serde::{Serialize, Deserialize};
-
 use web_sys::{SubtleCrypto, CryptoKey};
-use js_sys::{Object, Array, JSON, Uint8Array};
+use js_sys::Uint8Array;
 
 use std::collections::HashMap;
 use std::str;
@@ -119,6 +117,6 @@ impl Transitable {
         return base64::decode(sections[i]).unwrap().to_vec();
     }
     pub fn unsign(&self) -> Transitable{
-        Transitable::from_bytes(&self.get_jwt_section(2))
+        Transitable::from_bytes(&self.get_jwt_section(1))
     }
 }

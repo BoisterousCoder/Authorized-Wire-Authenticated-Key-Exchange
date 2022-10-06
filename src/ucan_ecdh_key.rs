@@ -6,20 +6,23 @@ use web_sys::{SubtleCrypto, CryptoKey};
 use js_sys::Uint8Array;
 use futures::Future;
 use std::pin::Pin;
-use std::error::Error;
 use anyhow::anyhow;
 
 use crate::utils::*;
 
 pub struct UcanEcdhKey {
-    key: CryptoKey
+    public_key: CryptoKey,
+    private_key: Option<CryptoKey>
 }
 impl UcanEcdhKey {
     pub async fn from_did(crypto:&SubtleCrypto, did:&str) -> UcanEcdhKey{
-        UcanEcdhKey::from_crypto_key(did_key_to_crypto_key(&crypto, did).await)
+        return UcanEcdhKey{
+            public_key: did_key_to_crypto_key(&crypto, did).await,
+            private_key: None
+        }
     }
-    pub fn from_crypto_key(key: CryptoKey) -> UcanEcdhKey{
-        return UcanEcdhKey{key}
+    pub fn from( public_key: CryptoKey, private_key: CryptoKey) -> UcanEcdhKey{
+        return UcanEcdhKey{public_key, private_key:Some(private_key)}
     }
 }
 impl ucan::crypto::KeyMaterial for UcanEcdhKey {
@@ -28,15 +31,16 @@ impl ucan::crypto::KeyMaterial for UcanEcdhKey {
         -> Pin<Box<dyn Future<Output = Result<String, anyhow::Error>> + 'async_trait>>
         where 'life0: 'async_trait,Self: 'async_trait {
         return Box::pin(async move {
-            Ok::<String, anyhow::Error>(crypto_key_to_did_key(&fetch_subtle_crypto(), &self.key).await)
+            Ok::<String, anyhow::Error>(crypto_key_to_did_key(&fetch_subtle_crypto(), &self.public_key).await)
         });
     }
     fn sign<'life0, 'life1, 'async_trait>(&'life0 self, payload: &'life1 [u8]) 
         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, anyhow::Error>> + 'async_trait>>
         where 'life0: 'async_trait, 'life1: 'async_trait,Self: 'async_trait{
         return Box::pin(async move {
+            if self.private_key.is_none() {panic!("no private key is specified, but sign was called")}
             let crypto = fetch_subtle_crypto();
-            let ecdsa_key = get_ecdsa_key(&crypto, &self.key, true).await;
+            let ecdsa_key = get_ecdsa_key(&crypto, self.private_key.as_ref().unwrap(), true).await;
             let algorithm = HashMap::from([
                 ("name".to_string(), JsValue::from_str("ECDSA")),
                 ("hash".to_string(), JsValue::from_str("SHA-512")),
@@ -56,7 +60,7 @@ impl ucan::crypto::KeyMaterial for UcanEcdhKey {
         where 'life0: 'async_trait, 'life1: 'async_trait, 'life2: 'async_trait, Self: 'async_trait{
         return Box::pin( async move {
             let crypto = fetch_subtle_crypto();
-            let ecdsa_key = get_ecdsa_key(&crypto, &self.key, false).await;
+            let ecdsa_key = get_ecdsa_key(&crypto, &self.public_key, false).await;
             let algorithm = HashMap::from([
                 ("name".to_string(), JsValue::from_str("ECDSA")),
                 ("hash".to_string(), JsValue::from_str("SHA-512")),

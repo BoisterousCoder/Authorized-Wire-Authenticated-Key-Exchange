@@ -5,11 +5,13 @@
 extern crate wasm_bindgen_test;
 use std::collections::HashMap;
 use std::{assert, print, format, vec};
-use js_sys::Array;
+use js_sys::{Array, Function};
+use ucan::ucan::UcanPayload;
 use wasm_bindgen::JsValue;
 use std::str;
 
-use awake::utils::{gen_key_pair, fetch_subtle_crypto, diffie_helman};
+use awake::utils::*;
+use awake::handshake::Handshake;
 use awake::transitable::Transitable;
 use awake::ratchet::Ratchet;
 use wasm_bindgen_test::*;
@@ -65,6 +67,15 @@ fn can_convert_transitable_bytes(s:String) -> bool{
     let s_mod = Transitable::from_bytes(bytes.as_slice()).as_readable().unwrap();
     s == s_mod
 }
+#[wasm_bindgen_test]
+async fn can_covert_to_did(){
+    let crypto = fetch_subtle_crypto();
+    let (key, _) = gen_key_pair(&crypto, true).await;
+    let did = crypto_key_to_did_key(&crypto, &key).await;
+    let new_key = did_key_to_crypto_key(&crypto, &did).await;
+    let new_did = crypto_key_to_did_key(&crypto, &new_key).await;
+    assert!(did == new_did);
+}
 /*
 Integration Tests
 // */
@@ -86,6 +97,22 @@ async fn can_sign_func(payload:&str) -> bool{
     return data.verify(&crypto, &public_key).await;
 }
 #[wasm_bindgen_test]
+async fn can_unsign(){
+    for payload in TEST_STRINGS {
+        if !can_unsign_func(payload).await {
+            panic!("failed with payload:{}", payload);
+        }
+    }
+    assert!(true);
+}
+async fn can_unsign_func(payload:&str) -> bool{
+    let crypto = fetch_subtle_crypto();
+    let (_, private_key) = gen_key_pair(&crypto, true).await;
+
+    let data = Transitable::from_readable(payload).sign(&crypto, &private_key).await;
+    return data.unsign().as_readable().unwrap() == payload.to_string();
+}
+#[wasm_bindgen_test]
 async fn can_fail_sign(){
     for payload in TEST_STRINGS {
         if !can_fail_sign_func(payload).await {
@@ -103,8 +130,6 @@ async fn can_fail_sign_func(payload:&str) -> bool{
     let data = Transitable::from_readable(payload).sign(&crypto, &private_key).await;
     return !data.verify(&crypto, &public_key_imposter).await;
 }
-//#[wasm_bindgen_test]
-//#[quickcheck] Note: Quick Check does not allow for futures so we'll have to do things for manually
 async fn can_rachet_crypto_func(text_in:&str, id:usize, salt_str:&str) -> bool{
     let salt = salt_str.as_bytes().to_vec();
     let crypto = fetch_subtle_crypto();
@@ -139,4 +164,18 @@ async fn can_rachet_crypto() {
         }
     }
     assert!(true)
+}
+
+#[wasm_bindgen_test]
+async fn can_handler_return(){
+    let handshaker_requestor_future = Handshake::new();
+    let handshaker_responder_future = Handshake::new();
+
+    let request = handshaker_requestor_future.await.request(Array::new()).await;
+    log(&request.as_readable().unwrap());
+    let response = handshaker_responder_future.await.reponse(
+        request, Array::new(), 60, Function::new_no_args("return true")).await.unwrap();
+    log(&response.as_readable().unwrap());
+
+    assert!(true);
 }

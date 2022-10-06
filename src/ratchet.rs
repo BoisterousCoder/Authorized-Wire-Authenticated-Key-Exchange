@@ -22,7 +22,12 @@ impl Ratchet{
     }
     pub async fn process_payload(&mut self, id:usize, payload:Transitable) -> Result<Transitable, String>{
         self.gen_handlers_to(id).await;
-        return self.secret_chain[id].proccess_payload(self.is_encrypting, payload).await;
+        let ret = self.secret_chain[id].proccess_payload(self.is_encrypting, payload).await;
+        if !self.is_encrypting {self.secret_chain[id].empty_msg_keys()}
+        return ret;
+    }
+    pub fn empty_decryptor(&mut self, id:usize){
+        self.secret_chain[id].empty_msg_keys();
     }
     pub async fn set_new_shared_key(&mut self, start_id:usize, shared_secret:CryptoKey){
         self.gen_handlers_to(start_id-1).await;
@@ -126,11 +131,10 @@ impl PayloadHandler{
             ).unwrap()
         };
         let payload_js = JsFuture::from(payload_promise).await.unwrap();
-        self.empty_msg_keys();
         let payload_vec = Uint8Array::new(&payload_js).to_vec();
         return Ok(Transitable::from_bytes(payload_vec.as_slice()));
     }
-    fn empty_msg_keys(&mut self){
+    pub fn empty_msg_keys(&mut self){
         self.aes_key = None;
         self.unique_iv = None;
     }
