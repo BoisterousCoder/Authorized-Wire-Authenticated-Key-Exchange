@@ -138,15 +138,14 @@ impl Handshake{
 
         //build the response 
         let mut response = Transitable::from_readable(&format!("{{
-            \"awv\": \"0.1.0\",
-            \"type\": \"awake/res\",
-            \"aud\":\"{}\",
-            \"iss\": \"{}\",
-            \"msg\": \"{}\"
-        }}", forien_did_key, self_did.await, encrypted_ucan.as_base64()));
-        // web_sys::console::log_1(&JsValue::from(&response.as_readable().unwrap()));
-        response.sign(&self.crypto, &self.real_private).await;
-        // web_sys::console::log_1(&JsValue::from(&response.as_readable().unwrap()));
+                \"awv\": \"0.1.0\",
+                \"type\": \"awake/res\",
+                \"aud\":\"{}\",
+                \"iss\": \"{}\",
+                \"msg\": \"{}\"
+            }}", 
+            forien_did_key, self_did.await, encrypted_ucan.as_base64()))
+            .sign(&self.crypto, &self.real_private).await;
         return Some(response);
     }
     //part 3.4 from spec
