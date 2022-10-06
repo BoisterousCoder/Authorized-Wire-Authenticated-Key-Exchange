@@ -14,6 +14,9 @@ use js_sys::{Object, Array, JSON, Uint8Array};
 use std::collections::HashMap;
 use std::slice::Iter;
 
+const DID_KEY_PREFIX:&str = "did:key:";
+const DID_KEY_PREFIX_NIST256:&str = "zDn";
+
 pub fn js_objectify(props:&HashMap<String, JsValue>) -> Object{
     let obj_array = Array::new_with_length(props.len() as u32);
     let mut i:u32 = 0;
@@ -128,6 +131,39 @@ pub async fn get_ecdsa_key(crypto:&SubtleCrypto, ecdh_key:&CryptoKey, is_sign_ke
     ).unwrap();
     let ecdsa_key = JsFuture::from(ecdsa_key_promise).await.unwrap();
     return ecdsa_key.dyn_into().unwrap();
+}
+
+pub async fn did_key_to_crypto_key(crypto:&SubtleCrypto, did_key:&str) -> CryptoKey{
+    let algorithm = HashMap::from([
+        ("name".to_string(), JsValue::from_str("ECDH")),
+        ("namedCurve".to_string(), JsValue::from_str("P-256")),
+    ]);
+
+    let key_first_prefix_length = String::from(DID_KEY_PREFIX).len();
+    let key_prefix_length = String::from(DID_KEY_PREFIX_NIST256).len();
+    if &did_key[key_first_prefix_length..key_prefix_length-1] == DID_KEY_PREFIX_NIST256 {
+        let key_byte_str = &did_key[key_prefix_length..];
+        let key_byte_vec = bs58::decode(key_byte_str).into_vec().unwrap();
+        let key_byte_array = Uint8Array::new_with_length(key_byte_vec.len() as u32);
+        let mut i = 0;
+        while i < key_byte_vec.len(){
+            key_byte_array.set_index(i as u32, key_byte_vec[i]);
+            i += 1;
+        }
+
+        let key_promise = crypto.import_key_with_object("raw", &key_byte_array, &js_objectify(&algorithm), false, &JsValue::from_str("deriveKey")).unwrap();
+        let key_future = JsFuture::from(key_promise);
+        return key_future.await.unwrap().dyn_into().unwrap();
+    }else{
+        panic!("DID key is not Nist-256 or is improperly formatted")
+    }
+}
+
+pub async fn crypto_key_to_did_key(crypto:&SubtleCrypto, crypto_key:&CryptoKey) -> String{
+    let key_data_promise = crypto.export_key("raw", crypto_key).unwrap();
+    let key_data = Uint8Array::new(&JsFuture::from(key_data_promise).await.unwrap());
+    let did_key_data = bs58::encode(key_data.to_vec()).into_string();
+    return format!("{}{}{}", DID_KEY_PREFIX, DID_KEY_PREFIX_NIST256, did_key_data)
 }
 
 pub fn overwrite_hash_map<K, V>(top: &HashMap<K, V>, bot: &HashMap<K, V>) -> HashMap<K, V>

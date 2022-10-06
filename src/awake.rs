@@ -4,14 +4,13 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{SubtleCrypto, CryptoKey};
 use js_sys::{Uint8Array, Array};
 use std::collections::HashMap;
+use ucan::builder::UcanBuilder;
 use serde_json::Value;
 
 use crate::utils::*;
+use crate::ucan_ecdh_key::UcanEcdhKey;
 use crate::transitable::Transitable;
 use crate::forien_agent::ForienAgent;
-
-const DID_KEY_PREFIX:&str = "did:key:";
-const DID_KEY_PREFIX_NIST256:&str = "zDn";
 
 #[wasm_bindgen]
 pub struct Awake{
@@ -45,7 +44,7 @@ impl Awake{
         //TODO: Add error handling
         let issuer_did:String = match &self.handshake_public {
             None => panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections."),
-            Some(public_key) => crypto_key_to_did_key(&self.crypto, DID_KEY_PREFIX_NIST256, public_key).await
+            Some(public_key) => crypto_key_to_did_key(&self.crypto, public_key).await
         };
         let cap_json = capabilities_to_value(capabilities);
         let mut payload = Transitable::from_readable(&format!("{{
@@ -58,7 +57,7 @@ impl Awake{
         return payload;
     }
     //Part 3.3 from spec
-    pub async fn handshake_reponse(&mut self, handshake_request:Transitable, capabilities: Array) -> Transitable{
+    pub async fn handshake_reponse(&mut self, handshake_request:Transitable, capabilities: Array, lifetime: u64) -> Transitable{
         //error if there haas already been a handshake conducted
         if self.has_conducted_handshake(){
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
@@ -69,23 +68,32 @@ impl Awake{
             Some(x) => x,
             None => panic!("The handshake was not sent sent in plain text")
         };
-        let ucan_request:Value = match serde_json::from_str(&request_str){
+        let request_map:Value = match serde_json::from_str(&request_str){
             Ok(x) => x,
             Err(_) => panic!("The handshake was not sent in the proper json format")
         };
-        let forien_did_key = &ucan_request["did"].as_str().unwrap();
+        let forien_did_key = &request_map["did"].as_str().unwrap();
 
         //init agent
         let mut agent = ForienAgent::new(&self.handshake_private.as_ref().unwrap(), forien_did_key, forien_did_key.as_bytes().to_vec()).await;
-        let self_did = crypto_key_to_did_key(&self.crypto, DID_KEY_PREFIX_NIST256, &self.real_public).await;
+        let self_did = crypto_key_to_did_key(&self.crypto, &self.real_public).await;
         let cap_json = capabilities_to_value(capabilities);
+        let ucan = UcanBuilder::default()
+            .issued_by(UcanEcdhKey::from_did(&self.crypto, &self_did))
+            .for_audience(forien_did_key)
+            .with_lifetime(lifetime)
+            .build().unwrap()
+            .sign().await.unwrap()
+            .encode().unwrap();
+
         let plain_message = Transitable::from_readable(&format!("{{
             \"awv\": \"0.1.0\",
             \"type\": \"awake/res\",
             \"aud\":\"{}\",
             \"iss\": \"{}\",
             \"msg\": {}
-        }}", forien_did_key, self_did, cap_json));
+        }}", forien_did_key, self_did, ucan));
+        
         let (_, mut encrypted_message) = agent.encrypt_for(plain_message).await;
         encrypted_message.sign(&self.crypto, &self.real_private).await;
         match &mut self.potential_partners{
@@ -97,12 +105,6 @@ impl Awake{
     pub fn has_conducted_handshake(&self) -> bool {
         return !(self.handshake_private.is_some() && self.handshake_public.is_some() && self.potential_partners.is_some())
     }
-}
-async fn crypto_key_to_did_key(crypto:&SubtleCrypto, curve_prefix:&str, crypto_key:&CryptoKey) -> String{
-    let key_data_promise = crypto.export_key("raw", crypto_key).unwrap();
-    let key_data = Uint8Array::new(&JsFuture::from(key_data_promise).await.unwrap());
-    let did_key_data = bs58::encode(key_data.to_vec()).into_string();
-    return format!("{}{}{}", DID_KEY_PREFIX, curve_prefix, did_key_data)
 }
 
 fn capabilities_to_value(capabilities:Array) -> Value{
