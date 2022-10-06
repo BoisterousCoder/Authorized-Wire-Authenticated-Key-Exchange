@@ -8,7 +8,6 @@ use crate::transitable::Transitable;
 use crate::utils::{js_objectify, fetch_subtle_crypto, u8_iter_js_array};
 
 pub struct Ratchet{
-    shared_secret:CryptoKey,
     is_encrypting:bool,
     secret_chain:Vec<PayloadHandler>
 }
@@ -16,7 +15,6 @@ impl Ratchet{
     pub async fn new(shared_secret:CryptoKey, is_encrypting:bool, salt:Vec<u8>) -> Ratchet{
         let mut ratchet = Ratchet{
             is_encrypting,
-            shared_secret:shared_secret.clone(),
             secret_chain: vec![]
         };
         ratchet.secret_chain.push(PayloadHandler::new(shared_secret, salt, None).await);

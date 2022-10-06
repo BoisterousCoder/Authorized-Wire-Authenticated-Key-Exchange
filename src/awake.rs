@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::utils::*;
 use crate::transitable::Transitable;
-use crate::forienAgent::ForienAgent;
+use crate::forien_agent::ForienAgent;
 
 const DID_KEY_PREFIX:&str = "did:key:";
 const DID_KEY_PREFIX_NIST256:&str = "zDn";
