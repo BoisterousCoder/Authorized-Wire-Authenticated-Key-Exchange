@@ -68,7 +68,7 @@ fn can_convert_transitable_bytes(s:String) -> bool{
     s == s_mod
 }
 #[wasm_bindgen_test]
-async fn can_covert_to_did(){
+async fn can_convert_to_did(){
     let crypto = fetch_subtle_crypto();
     let (key, _) = gen_key_pair(&crypto, true).await;
     let did = crypto_key_to_did_key(&crypto, &key).await;
@@ -168,14 +168,14 @@ async fn can_rachet_crypto() {
 
 #[wasm_bindgen_test]
 async fn can_handler_return(){
-    let handshaker_requestor_future = Handshake::new();
-    let handshaker_responder_future = Handshake::new();
+    let mut handshaker_requestor = Handshake::new().await;
+    let mut handshaker_responder = Handshake::new().await;
 
-    let request = handshaker_requestor_future.await.request(Array::new()).await;
+    let request = handshaker_requestor.request(Array::new()).await;
     log(&request.as_readable().unwrap());
-    let response = handshaker_responder_future.await.reponse(
-        request, Array::new(), 60, Function::new_no_args("return true")).await.unwrap();
+    let response = handshaker_responder.reponse(request, Array::new(), 60, Function::new_no_args("return true")).await.unwrap();
     log(&response.as_readable().unwrap());
-
+    let challenge = handshaker_requestor.challenge_response(response, "Arbitrary Pin", Function::new_no_args("return true")).await.unwrap();
+    log(&challenge.as_readable().unwrap());
     assert!(true);
 }

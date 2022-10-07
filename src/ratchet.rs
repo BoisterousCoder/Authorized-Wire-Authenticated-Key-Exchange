@@ -21,6 +21,7 @@ impl Ratchet{
         return ratchet;
     }
     pub async fn process_payload(&mut self, id:usize, payload:Transitable) -> Result<Transitable, String>{
+        //web_sys::console::log_1(&JsValue::from(id));
         self.gen_handlers_to(id).await;
         let ret = self.secret_chain[id].proccess_payload(self.is_encrypting, payload).await;
         if !self.is_encrypting {self.secret_chain[id].empty_msg_keys()}
@@ -61,6 +62,7 @@ impl PayloadHandler{
             None => Uint8Array::new_with_length(0)
         };
         let salt_array = u8_iter_js_array(salt.iter());
+        // web_sys::console::log_1(&last_secret_array);
         let algorithm = HashMap::from([
             ("name".to_string(), JsValue::from_str("HKDF")),
             ("hash".to_string(), JsValue::from("SHA-256")),
@@ -118,6 +120,10 @@ impl PayloadHandler{
         let aes_key_promise = crypto.import_key_with_str("raw", &aes_key_array, "AES-GCM", false, &key_uses).unwrap();
         let aes_key_js = JsFuture::from(aes_key_promise).await.unwrap();
         let aes_key:CryptoKey = aes_key_js.dyn_into().unwrap();
+        //web_sys::console::log_1(&JsValue::from(is_encrypting));
+        // web_sys::console::log_1(&js_algoritm);
+        // web_sys::console::log_1(&aes_key);
+        //web_sys::console::log_1(&payload_array);
         let payload_promise = match is_encrypting {
             true => crypto.encrypt_with_object_and_buffer_source(
                 &js_algoritm,

@@ -51,7 +51,43 @@ pub async fn get_message_id(crypto:&SubtleCrypto, key1: &CryptoKey, key2: &Crypt
         let mut msg_count_bytes = message_count.unwrap().to_be_bytes().to_vec();
         key_data.append(&mut msg_count_bytes)
     }
-    let hash_promise = crypto.digest_with_str_and_buffer_source("SHA-256", &u8_iter_js_array(key_data.iter())).unwrap();
+    return hash(crypto, &key_data).await;
+}
+
+pub async fn sign(crypto:&SubtleCrypto, ecdh_key: &CryptoKey, data:&Vec<u8>) -> Vec<u8>{
+    let ecdsa_key = get_ecdsa_key(crypto, ecdh_key, true).await;
+    let algorithm = HashMap::from([
+        ("name".to_string(), JsValue::from_str("ECDSA")),
+        ("hash".to_string(), JsValue::from_str("SHA-512")),
+    ]);
+
+    let signature_promise = crypto.sign_with_object_and_buffer_source(
+        &js_objectify(&algorithm), 
+        &ecdsa_key,
+        &u8_iter_js_array(data.iter())
+    ).unwrap();
+    let signature_js = JsFuture::from(signature_promise).await.unwrap();
+    let signature_array = Uint8Array::new(&signature_js);
+    return signature_array.to_vec();
+}
+pub async fn verify(crypto:&SubtleCrypto, ecdh_key: &CryptoKey, data:&Vec<u8>, signature:&Vec<u8>) -> bool {
+    let ecdsa_key = get_ecdsa_key(crypto, ecdh_key, false).await;
+    let algorithm = HashMap::from([
+        ("name".to_string(), JsValue::from_str("ECDSA")),
+        ("hash".to_string(), JsValue::from_str("SHA-512")),
+    ]);
+    let is_valid_future = crypto.verify_with_object_and_buffer_source_and_buffer_source(
+        &js_objectify(&algorithm),
+        &ecdsa_key,
+        &u8_iter_js_array(signature.iter()),
+        &u8_iter_js_array(data.iter())
+    ).unwrap();
+    let is_valid_js = JsFuture::from(is_valid_future).await.unwrap();
+    return is_valid_js.as_bool().unwrap()
+}
+
+pub async fn hash(crypto: &SubtleCrypto, data:&Vec<u8>) -> Vec<u8>{
+    let hash_promise = crypto.digest_with_str_and_buffer_source("SHA-256", &u8_iter_js_array(data.iter())).unwrap();
     return Uint8Array::new(&JsFuture::from(hash_promise).await.unwrap()).to_vec();
 }
 
@@ -89,6 +125,7 @@ pub async fn diffie_helman(crypto:&SubtleCrypto, self_key:&CryptoKey, other_agen
     ).unwrap();
     let shared_secret_data = JsFuture::from(shared_secret_data_promise).await.unwrap();
     let shared_secret_data_obj:Object  = shared_secret_data.dyn_into().unwrap();
+    //web_sys::console::log_1(&shared_secret_data_obj);
     let shared_secret_promise = crypto.import_key_with_str(
         "raw",
         &shared_secret_data_obj,
@@ -141,6 +178,17 @@ pub async fn get_ecdsa_key(crypto:&SubtleCrypto, ecdh_key:&CryptoKey, is_sign_ke
     return ecdsa_key.dyn_into().unwrap();
 }
 
+pub fn did_key_to_bytes(did_key:&str) -> Vec<u8>{
+    let key_first_prefix_length = String::from(DID_KEY_PREFIX).len();
+    let key_prefix_length = key_first_prefix_length+String::from(DID_KEY_PREFIX_NIST256).len();
+    if &did_key[key_first_prefix_length..key_prefix_length] == DID_KEY_PREFIX_NIST256 {
+        let key_byte_str = &did_key[key_prefix_length..];
+        return bs58::decode(key_byte_str).into_vec().unwrap();
+    }else{
+        panic!("DID key is not Nist-256 or is improperly formatted")
+    }
+}
+
 pub async fn did_key_to_crypto_key(crypto:&SubtleCrypto, did_key:&str) -> CryptoKey{
     let algorithm = HashMap::from([
         ("name".to_string(), JsValue::from_str("ECDH")),
@@ -149,33 +197,21 @@ pub async fn did_key_to_crypto_key(crypto:&SubtleCrypto, did_key:&str) -> Crypto
     let key_uses_array:Array = Array::new_with_length(2);
     key_uses_array.set(0, JsValue::from("deriveBits"));
     key_uses_array.set(1, JsValue::from("deriveKey"));
-
-    let key_first_prefix_length = String::from(DID_KEY_PREFIX).len();
-    let key_prefix_length = key_first_prefix_length+String::from(DID_KEY_PREFIX_NIST256).len();
-    if &did_key[key_first_prefix_length..key_prefix_length] == DID_KEY_PREFIX_NIST256 {
-        let key_byte_str = &did_key[key_prefix_length..];
-        let key_byte_vec = bs58::decode(key_byte_str).into_vec().unwrap();
-        let key_byte_array = Uint8Array::new_with_length(key_byte_vec.len() as u32);
-        let mut i = 0;
-        while i < key_byte_vec.len(){
-            key_byte_array.set_index(i as u32, key_byte_vec[i]);
-            i += 1;
-        }
-        //web_sys::console::log_1(&key_byte_array);
-        let key_promise = crypto.import_key_with_object(
-            "raw", 
-            &key_byte_array, 
-            &js_objectify(&algorithm), 
-            true, 
-            &Array::new_with_length(0)
-        ).unwrap();
-        let key_future = JsFuture::from(key_promise);
-        let key_js = key_future.await.unwrap();
-        return key_js.dyn_into().unwrap();
-    }else{
-        panic!("DID key is not Nist-256 or is improperly formatted")
-    }
+    let key_byte_vec = did_key_to_bytes(did_key);
+    let key_byte_array = u8_iter_js_array(key_byte_vec.iter());
+    let key_promise = crypto.import_key_with_object(
+        "raw", 
+        &key_byte_array, 
+        &js_objectify(&algorithm), 
+        true, 
+        &Array::new_with_length(0)
+    ).unwrap();
+    let key_future = JsFuture::from(key_promise);
+    let key_js = key_future.await.unwrap();
+    return key_js.dyn_into().unwrap();
+    
 }
+
 
 pub async fn crypto_key_to_did_key(crypto:&SubtleCrypto, crypto_key:&CryptoKey) -> String{
     let key_data = bs58::encode(crypto_key_to_bytes(crypto, crypto_key).await).into_string();

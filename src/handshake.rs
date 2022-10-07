@@ -29,6 +29,15 @@ pub struct Handshake{
     TODOS:
         Current does not fail to failed awake message.
         Current only supports oob-pin for verification of requestor.
+        More error handling is needed across the board
+        More comments are needed everywher
+        Utils could be split into multiple files
+        There may be room small for performance imporvement moving around awaits
+        more tests need to writen
+        tests should be organised better
+        an example of how to use it needs to be writen
+        signatures on incomimng awake resquests probably need to be checked
+        exposed methods and properties need to be allowed to be accessed more js friendly names
 */
 #[wasm_bindgen]
 impl Handshake{
@@ -78,7 +87,7 @@ impl Handshake{
         if self.is_done{
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
         }
-        let self_did = crypto_key_to_did_key(&self.crypto, &self.real_public);
+        let self_did = crypto_key_to_did_key(&self.crypto, &self.step_2_public);
 
         //get requestor's data from request
         let request = request_signed.unsign();
@@ -93,7 +102,7 @@ impl Handshake{
 
         //init agent
         let forien_did_key = &request_map["did"].as_str().unwrap();
-        let mut agent = ForienAgent::new(&self.real_private, forien_did_key, None).await;
+        let mut agent = ForienAgent::new(&self.step_2_private, forien_did_key, None).await;
 
         //verify sender of the request
         //The forien agent's real public is not known yet so this is impossible
@@ -137,7 +146,7 @@ impl Handshake{
         self.potential_partners.insert(forien_did_key.to_string(), agent);
 
         //build the response 
-        let mut response = Transitable::from_readable(&format!("{{
+        let response = Transitable::from_readable(&format!("{{
                 \"awv\": \"0.1.0\",
                 \"type\": \"awake/res\",
                 \"aud\":\"{}\",
@@ -151,52 +160,96 @@ impl Handshake{
     //part 3.4 from spec
     pub async fn challenge_response(&mut self, 
         response_signed:Transitable, //The handshake response you are trying to challenge
-        oob_pin: JsValue, //The out of bounds pin to prove who you are
+        oob_pin: &str, //The out of bounds pin to prove who you are
         is_ucan_valid: Function //passes in the capabilities they want to prove and passes out a boolean on if you deem them valid){
     )-> Option<Transitable> {
         if self.is_done{
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
         }
+        let self_did_future = crypto_key_to_did_key(&self.crypto, &self.real_public);
 
         //get requestor's data from request
         let response = response_signed.unsign();
-        let response_str = match response_signed.as_readable(){
+        let response_str = match response.as_readable(){
             Some(x) => x,
-            None => panic!("The handshake init was not sent properly or the transitable is not a handshake request")
+            None => {
+                warn("handshake response was not sent properly or the transitable is not a handshake request");
+                return None
+            }
         };
         let response_map:Value = match serde_json::from_str(&response_str){
             Ok(x) => x,
-            Err(_) => panic!("The handshake was not sent in the proper json format")
+            Err(_) => {
+                warn(&format!("handshake response was not sent in the proper json format: \n{}", response_str));
+                return None;
+            }
         };
 
         //init agent
-        let forien_iss_did_key = &response_map["did"].as_str().unwrap();
-        let mut agent = ForienAgent::new(&self.real_private, forien_iss_did_key, None).await;
+        let forien_step_2_did = &response_map["iss"].as_str().unwrap();
+        let mut agent = ForienAgent::new(&self.step_2_private, forien_step_2_did, Some(&self.step_2_public)).await;
 
-        //verify sender of the response
-        if !agent.is_sender_of(&response_signed).await {
-            warn("Failed to verify sender's signature");
+        //get message id
+        let forien_step_2_key = did_key_to_crypto_key(&self.crypto, forien_step_2_did).await;
+        let mid_future = get_message_id(&self.crypto, &self.step_2_public, &forien_step_2_key, None);
+
+        //get ucan serde
+        let ucan_encrypted_str = match response_map["msg"].as_str(){
+            Some(x) => x,
+            None => {
+                warn("handshake ucan was not sent in the proper json format");
+                return None;
+            }
+        }.to_string();
+        let ucan = process_encrypted_ucan(&mut agent, &ucan_encrypted_str, 0).await;
+
+        //check if ucan is valid
+        let ucan_str = serde_json::to_string(&ucan).unwrap();
+        let ucan_js = JSON::parse(&ucan_str).unwrap();
+        let is_sender_capable = is_ucan_valid.call1(&ucan_js, &ucan_js).unwrap();
+        if !is_sender_capable.as_bool().unwrap() { 
+            warn("Failed to verify sender's capabilities");
             return None;
         }
 
-        //get ucan string
-        let encrypted_ucan = Transitable::from_readable(&response_map["msg"].as_str().unwrap());
-        let ucan_signed_str = agent.decrypt_for(0, encrypted_ucan).await.as_readable().unwrap();
+        //get signed hash for the payload
+        let forein_real_did = ucan["iss"].as_str().unwrap();
+        let mut hash_data:Vec<u8> = vec![];
+        hash_data.append(&mut did_key_to_bytes(forein_real_did));
+        hash_data.append(&mut oob_pin.as_bytes().to_vec());
+        let hash = hash(&self.crypto, &hash_data).await;
+        let signature = sign(&self.crypto, &self.real_private, &hash).await;
 
+        //create the message field and encrypt it
+        let msg_plain = format!("{{
+            \"pin\":\"{}\"
+            \"did\":\"{}\"
+            \"sig\":\"{}\"
+        }}", oob_pin, self_did_future.await, base64::encode(signature));
+        let (_, msg_encrypted) = agent.encrypt_for(Transitable::from_readable(&msg_plain)).await;
+        
+        //add agent to potential partner list
+        self.potential_partners.insert(forien_step_2_did.to_string(), agent);
 
-        //check if ucan is valid
-        // let ucan_js = JSON::parse(ucan_str).unwrap();
-        // let is_sender_capable = is_ucan_valid.call1(&ucan_js, &ucan_js).unwrap();
-        // if !is_sender_capable.as_bool().unwrap() { 
-        //     warn("Failed to verify sender's capabilities");
-        //     return None;
-        // }
-        return Some(Transitable::from_readable(""));
+        //return the final product, a response challange
+        let challenge = Transitable::from_readable(&format!("{{
+                \"awv\": \"0.1.0\",
+                \"type\": \"awake/msg\",
+                \"mid\":\"{}\",
+                \"msg\": \"{}\"
+            }}", 
+            base64::encode(mid_future.await), msg_encrypted.as_base64()))
+            .sign(&self.crypto, &self.real_private).await;
 
-        //let mid_future = get_message_id(&self.crypto, );
+        return Some(challenge);
     }
 }
-
+async fn process_encrypted_ucan(agent:&mut ForienAgent, encrypted_ucan_str:&str, msg_count:usize) -> Value{
+    let encrypted_ucan = Transitable::from_base64(encrypted_ucan_str);
+    let ucan_signed = agent.decrypt_for(0, encrypted_ucan).await;
+    let ucan_payload_str = ucan_signed.unsign().as_readable().unwrap();
+    return serde_json::from_str(&ucan_payload_str).unwrap()
+}
 fn capabilities_to_value(capabilities:Array) -> Value{
     let mut caps:Vec<UcanCapability> = vec![];
     for cap in capabilities.to_vec() {
