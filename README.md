@@ -20,5 +20,21 @@ To rust tests use `wasm-pack test --headless --firefox`
 ### How to Use
 This is a TODO
 
+## Known Issue
+    - does not fail to failed awake message when it is required.
+    - only supports oob-pin for verification of requestor.
+    - more error handling is needed in most places
+    - more comments are needed in most place
+    - utils could be split into multiple files
+    - there may be room for small performance imporvements moving around awaits
+    - more tests need to writen
+    - tests should be organised better
+    - an example of how to use the library needs to be writen
+    - signatures on incomimng awake resquests probably need to be checked
+    - exposed methods and properties need to be allowed to be accessed more js friendly names
+    - the acknoledge step of the handshake needs to be finished
+    - a *Messages* struct needs to be created to handle using the *final_agent* to encrypt/decrypt messages between agents
+    - there needs a wrapper around *Handshake* and *Message* inorder to sort messages based on what part of the handshake proccess they are apart of
+    - unused imports and other compiler warnings need to be taken care of
 ## License
 Licensed under Mozzilla Public License 2.0

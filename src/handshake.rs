@@ -14,7 +14,7 @@ use crate::forien_agent::ForienAgent;
 #[wasm_bindgen]
 pub struct Handshake{
     crypto: SubtleCrypto,
-    pub is_done:bool,
+    final_agent: Option<ForienAgent>,
     step_2_public: CryptoKey,
     step_2_private: CryptoKey,
     step_4_public: CryptoKey,
@@ -25,20 +25,6 @@ pub struct Handshake{
 }
 
 
-/*
-    TODOS:
-        Current does not fail to failed awake message.
-        Current only supports oob-pin for verification of requestor.
-        More error handling is needed across the board
-        More comments are needed everywher
-        Utils could be split into multiple files
-        There may be room small for performance imporvement moving around awaits
-        more tests need to writen
-        tests should be organised better
-        an example of how to use it needs to be writen
-        signatures on incomimng awake resquests probably need to be checked
-        exposed methods and properties need to be allowed to be accessed more js friendly names
-*/
 #[wasm_bindgen]
 impl Handshake{
     pub async fn new() -> Handshake{
@@ -54,13 +40,13 @@ impl Handshake{
             real_public,
             real_private,
             potential_partners:HashMap::new(),
-            is_done: false,
+            final_agent: None,
             crypto
         };
     }
     // Part 3.2 from spec
     pub async fn request(&self, capabilities: Array) -> Transitable {
-        if self.is_done{
+        if self.is_done(){
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
         }
 
@@ -84,7 +70,7 @@ impl Handshake{
         are_capabilities_valid: Function //passes in the capabilities they want to prove and passes out a boolean on if you deem them valid
     ) -> Option<Transitable>{
         //error if there haas already been a handshake conducted
-        if self.is_done{
+        if self.is_done(){
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
         }
         let self_did = crypto_key_to_did_key(&self.crypto, &self.step_2_public);
@@ -161,9 +147,9 @@ impl Handshake{
     pub async fn challenge_response(&mut self, 
         response_signed:Transitable, //The handshake response you are trying to challenge
         oob_pin: &str, //The out of bounds pin to prove who you are
-        is_ucan_valid: Function //passes in the capabilities they want to prove and passes out a boolean on if you deem them valid){
+        is_ucan_valid: Function //passes in the capabilities they want to prove and passes out a boolean on if you deem them valid
     )-> Option<Transitable> {
-        if self.is_done{
+        if self.is_done(){
             panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
         }
         let self_did_future = crypto_key_to_did_key(&self.crypto, &self.real_public);
@@ -243,6 +229,78 @@ impl Handshake{
 
         return Some(challenge);
     }
+    pub async fn acknowledge_challenge(&mut self, 
+        challenge_signed:Transitable, //The challenge you are acknowledging
+        is_pin_valid: Function //passes in the oob_pin they want to prove and passes out a boolean on if you deem them valid
+    ) -> Option<Transitable>{
+        if self.is_done(){
+            panic!("This awake object has already conducted a handshake. Please initialize a new awake object to conduct more conections.")
+        }
+        let self_did_future = crypto_key_to_did_key(&self.crypto, &self.real_public);
+
+        //get payload data
+        let challenge = challenge_signed.unsign();
+        let challenge_str = match challenge.as_readable(){
+            Some(x) => x,
+            None => {
+                warn("challenge was not sent properly or the transitable is not a handshake request");
+                return None;
+            }
+        };
+        let challenge_map:Value = match serde_json::from_str(&challenge_str){
+            Ok(x) => x,
+            Err(_) => {
+                warn(&format!("challenge was not sent in the proper json format: \n{}", challenge_str));
+                return None;
+            }
+        };
+
+        //get agent
+        let challenge_mid = match challenge_map["mid"].as_str(){
+            Some(x) => x,
+            None => {
+                warn("challenge was not sent in the proper json format. The 'mid' field could not be found.");
+                return None;
+            }
+        }.to_string();
+        let mut agent = find_agent(&self.crypto, &self.step_2_public, &self.potential_partners, &challenge_mid).await;
+        
+        //get challenge msg
+        let challenge_msg_encrypted = match challenge_map["msg"].as_str(){
+            Some(x) => Transitable::from_base64(x),
+            None => {
+                warn("challenge was not sent in the proper json format. The 'msg' field could not be found.");
+                return None;
+            }
+        };
+        let challenge_msg_str = agent.decrypt_for(0, challenge_msg_encrypted).await.as_readable().unwrap();
+        let challenge_msg_map:Value = match serde_json::from_str(&challenge_msg_str){
+            Ok(x) => x,
+            Err(_) => {
+                warn(&format!("challenge message was not sent in the proper json format: \n{}", challenge_msg_str));
+                return None;
+            }
+        };
+
+        //check if pin is valid
+        let pin = challenge_msg_map["pin"].as_str().unwrap();
+        let pin_js = JsValue::from(pin);
+        let is_sender_capable = is_pin_valid.call1(&pin_js, &pin_js).unwrap();
+        if !is_sender_capable.as_bool().unwrap() { 
+            warn("Failed to verify sender's pin");
+            return None;
+        }
+
+        //make mid_prefix
+        let real_forien_did = challenge_msg_map["did"].as_str().unwrap();
+        let mut mid_prefix:Vec<u8> = vec![];
+        //mid_prefix.append(did_key_to_bytes(real_forien_did), 
+
+        return None
+    }
+    pub fn is_done(&self) -> bool {
+        self.final_agent.is_some()
+    }
 }
 async fn process_encrypted_ucan(agent:&mut ForienAgent, encrypted_ucan_str:&str, msg_count:usize) -> Value{
     let encrypted_ucan = Transitable::from_base64(encrypted_ucan_str);
@@ -256,6 +314,14 @@ fn capabilities_to_value(capabilities:Array) -> Value{
         caps.push(UcanCapability::from_object(&cap.dyn_into().unwrap()));
     }
     return serde_json::to_value(&caps).unwrap();
+}
+async fn find_agent(crypto:&SubtleCrypto, self_key:&CryptoKey, agents:&HashMap<String, ForienAgent>, mid:&str) -> ForienAgent{
+    for (agent_did, agent) in agents{
+        let agent_key = did_key_to_crypto_key(crypto, &agent_did).await;
+        let comp_mid = base64::encode(get_message_id(crypto, &agent_key, self_key, None).await);
+        if mid == comp_mid {return agent.clone()}
+    }
+    panic!("cpuld not find agent using given mid {}", mid);
 }
 fn warn(msg:&str){
     web_sys::console::warn_1(&JsValue::from(msg));
