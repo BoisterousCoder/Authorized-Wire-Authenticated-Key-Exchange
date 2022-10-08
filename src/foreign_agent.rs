@@ -14,15 +14,15 @@ use crate::utils::{hash, diffie_helman, js_objectify, fetch_subtle_crypto, did_k
 const MAX_MSGS: usize = 1000000;//One million should be enough
 
 #[derive(Clone)]
-pub struct ForienAgent{
+pub struct ForeignAgent{
     pub did:String,
     mid_prefix:Option<Vec<u8>>,
     next_send_id:usize,
     send_ratchet:Ratchet,
     recieve_ratchet:Ratchet
 }
-impl ForienAgent{
-    pub async fn new(private_key:&CryptoKey, forien_did:&str, requestor_public_key:Option<&CryptoKey>) -> ForienAgent{
+impl ForeignAgent{
+    pub async fn new(private_key:&CryptoKey, forien_did:&str, requestor_public_key:Option<&CryptoKey>) -> ForeignAgent{
         let crypto = fetch_subtle_crypto();
         let salt = match requestor_public_key{
             Some(salt_key) => crypto_key_to_did_key(&crypto, salt_key).await.as_bytes().to_vec(),
@@ -30,7 +30,7 @@ impl ForienAgent{
         };
         let forien_key = did_key_to_crypto_key(&crypto, forien_did).await;
         let shared_secret = diffie_helman(&crypto, private_key, &forien_key).await;
-        return ForienAgent{
+        return ForeignAgent{
             next_send_id: 0,
             did: forien_did.to_string(),
             mid_prefix: None,

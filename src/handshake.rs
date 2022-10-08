@@ -9,19 +9,19 @@ use serde_json::{Value, json};
 use crate::utils::*;
 use crate::ucan_ecdh_key::UcanEcdhKey;
 use crate::transitable::Transitable;
-use crate::forien_agent::ForienAgent;
+use crate::foreign_agent::ForeignAgent;
 
 #[wasm_bindgen]
 pub struct Handshake{
     crypto: SubtleCrypto,
-    final_agent: Option<ForienAgent>,
+    final_agent: Option<ForeignAgent>,
     step_2_public: CryptoKey,
     step_2_private: CryptoKey,
     step_4_public: CryptoKey,
     step_4_private: CryptoKey,
     real_public: CryptoKey,
     real_private: CryptoKey,
-    potential_partners: HashMap<String, ForienAgent>
+    potential_partners: HashMap<String, ForeignAgent>
 }
 
 
@@ -88,7 +88,7 @@ impl Handshake{
 
         //init agent
         let forien_did_key = &request_map["did"].as_str().unwrap();
-        let mut agent = ForienAgent::new(&self.step_2_private, forien_did_key, None).await;
+        let mut agent = ForeignAgent::new(&self.step_2_private, forien_did_key, None).await;
 
         //verify sender of the request
         //The forien agent's real public is not known yet so this is impossible
@@ -173,7 +173,7 @@ impl Handshake{
 
         //init agent
         let forien_step_2_did = &response_map["iss"].as_str().unwrap();
-        let mut agent = ForienAgent::new(&self.step_2_private, forien_step_2_did, Some(&self.step_2_public)).await;
+        let mut agent = ForeignAgent::new(&self.step_2_private, forien_step_2_did, Some(&self.step_2_public)).await;
 
         //get message id
         let forien_step_2_key = did_key_to_crypto_key(&self.crypto, forien_step_2_did).await;
@@ -302,7 +302,7 @@ impl Handshake{
         self.final_agent.is_some()
     }
 }
-async fn process_encrypted_ucan(agent:&mut ForienAgent, encrypted_ucan_str:&str, msg_count:usize) -> Value{
+async fn process_encrypted_ucan(agent:&mut ForeignAgent, encrypted_ucan_str:&str, msg_count:usize) -> Value{
     let encrypted_ucan = Transitable::from_base64(encrypted_ucan_str);
     let ucan_signed = agent.decrypt_for(0, encrypted_ucan).await;
     let ucan_payload_str = ucan_signed.unsign().as_readable().unwrap();
@@ -315,7 +315,7 @@ fn capabilities_to_value(capabilities:Array) -> Value{
     }
     return serde_json::to_value(&caps).unwrap();
 }
-async fn find_agent(crypto:&SubtleCrypto, self_key:&CryptoKey, agents:&HashMap<String, ForienAgent>, mid:&str) -> ForienAgent{
+async fn find_agent(crypto:&SubtleCrypto, self_key:&CryptoKey, agents:&HashMap<String, ForeignAgent>, mid:&str) -> ForeignAgent{
     for (agent_did, agent) in agents{
         let agent_key = did_key_to_crypto_key(crypto, &agent_did).await;
         let comp_mid = base64::encode(get_message_id(crypto, &agent_key, self_key, None).await);
